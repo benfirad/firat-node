@@ -9,9 +9,9 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Text-first app drawer, searchable launcher and built-in help/control screens
 - Biometric/device-credential vault for Codex, SSH and Debian actions
 - Direct Codex CLI control over Termux + SSH (no API integration in the launcher)
-- Tailnet-only Mac and Windows/Lolie status, SSH and navigable B-drive workflows
+- Tailnet-only Mac and Windows/Lolie status, SSH and navigable `smb://lolile/kurek` SMB3 workflows
 - daakLOLILE private dashboard integration
-- Four-device RustDesk touch hub with locally configurable IDs or Tailnet endpoints (default direct-access port 21118)
+- Chrome Remote Desktop hub for the Google-account device list and touch-friendly remote control
 - Android Calendar Provider agenda with a read-only-by-default launcher view
 - Thunderbird notification summaries at 07:30 and every hour
 - Local sender/spam filters; the launcher never sends email
@@ -26,6 +26,7 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - One-way daakREMEMBER task export into `DAAK-Vault/daakREMEMBER.md` for Obsidian
 - Obsidian deep link into a local `DAAK-Vault`
 - Right-edge launcher gesture into the control centre
+- One-tap Fossify Clock alarms and battery-light Plees sleep tracking from the control centre
 - Optional daily update checks with a pinned manifest and mandatory APK SHA-256 verification
 
 ## Security model
@@ -40,9 +41,11 @@ Copy `config.properties.example` to that path and edit it locally. Keep remote s
 
 Mail access is metadata-only through Android's notification listener: sender, subject and timestamp. WhatsApp processing is limited to notification text that Android has already decrypted and displayed; only explicit task-like phrases are captured. DAAK NODE never sends mail or WhatsApp messages.
 
+The Kurek browser uses SMB3 over the private Tailnet. Its credential file lives inside Termux with mode `0600`; the launcher and repository never contain the SMB password.
+
 daakREMEMBER traffic uses its existing HTTP snapshot/merge protocol on TCP 45831. The companion Mac service rejects non-Tailnet source addresses; Tailscale supplies the encrypted transport. DAAK NODE does not expose a new listening port.
 
-Remote desktop targets are kept in Android private preferences and handed to RustDesk without embedding passwords. For direct-IP mode, keep TCP 21118 limited to the Tailnet at the host firewall; Tailscale provides the encrypted transport. DAAK Inbox does not write a dictated item anywhere until the user selects a destination in its confirmation dialog.
+Chrome Remote Desktop authentication and device selection stay inside Google's official Android app; DAAK NODE stores no remote-device IDs or remote desktop passwords. DAAK Inbox does not write a dictated item anywhere until the user selects a destination in its confirmation dialog.
 
 The Android package name remains `com.firat.node` so upgrades preserve launcher state, permissions and private preferences. The old `/sdcard/Download/firat-node/config.properties` path remains a read-only compatibility fallback.
 
@@ -63,11 +66,13 @@ The build uses only Android SDK command-line tools. The generated APK is debug-s
 - [Tailscale](https://github.com/tailscale/tailscale)
 - [Thunderbird for Android](https://github.com/thunderbird/thunderbird-android)
 - [Fossify Calendar](https://github.com/FossifyOrg/Calendar)
+- [Fossify Clock](https://github.com/FossifyOrg/Clock)
+- [Plees Tracker](https://gitlab.com/vmiklos/plees-tracker)
 - [Material Files](https://github.com/zhanghai/MaterialFiles)
 - [daakREMEMBER](https://github.com/benfirad/daakREMEMBER)
 - [Obsidian](https://github.com/obsidianmd/obsidian-releases)
 - [FUTO Voice Input](https://github.com/futo-org/voice-input)
-- [RustDesk](https://github.com/rustdesk/rustdesk)
+- [Chrome Remote Desktop](https://play.google.com/store/apps/details?id=com.google.chromeremotedesktop)
 
 ## Platform note
 

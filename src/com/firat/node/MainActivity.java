@@ -88,6 +88,7 @@ public final class MainActivity extends Activity {
         nodeView = new NodeView(this);
         setContentView(nodeView);
         applyBlackWallpapers();
+        removeLegacyRemoteState();
         NodeStore.schedule(this);
         ensureTermuxPermission();
         if (checkSelfPermission("com.termux.permission.RUN_COMMAND") == PackageManager.PERMISSION_GRANTED) {
@@ -149,8 +150,17 @@ public final class MainActivity extends Activity {
         } catch (Exception ignored) { }
     }
 
+    private void removeLegacyRemoteState() {
+        SharedPreferences prefs = getSharedPreferences(NodeStore.PREFS, 0);
+        if (prefs.getBoolean("legacy_remote_state_removed_v1", false)) return;
+        prefs.edit()
+                .remove("remote_lolile").remove("remote_mac")
+                .remove("remote_bedirhan_mac").remove("remote_bedirhan_windows")
+                .putBoolean("legacy_remote_state_removed_v1", true).apply();
+    }
+
     @Override public void onBackPressed() {
-        if (nodeView != null && nodeView.mode == NodeView.DISK_VIEW && !"B:\\".equals(nodeView.diskPath)) nodeView.diskUp();
+        if (nodeView != null && nodeView.mode == NodeView.DISK_VIEW && !NodeView.DISK_ROOT.equals(nodeView.diskPath)) nodeView.diskUp();
         else if (nodeView != null && nodeView.mode != NodeView.HOME) nodeView.showMode(NodeView.HOME);
         else super.onBackPressed();
     }
@@ -358,6 +368,7 @@ public final class MainActivity extends Activity {
 
     private final class NodeView extends View {
         static final int HOME = 0, APPS = 1, HELP = 2, CONTROL = 3, DISK_VIEW = 4, REMOTE = 5;
+        static final String DISK_ROOT = "smb://lolile/kurek";
         final int mint = Color.rgb(120, 247, 212);
         final int mintDim = Color.rgb(57, 135, 114);
         final int panel = Color.rgb(5, 12, 10);
@@ -373,7 +384,7 @@ public final class MainActivity extends Activity {
         final List<AppEntry> shownApps = new ArrayList<AppEntry>();
         final List<String> diskItems = new ArrayList<String>();
         final List<String> rememberItems = new ArrayList<String>();
-        String diskPath = "B:\\";
+        String diskPath = DISK_ROOT;
         int mode = HOME;
         String query = "";
         String meshIp = "CHECKING", macState = "CHECKING", diskState = "CHECKING";
@@ -509,7 +520,7 @@ public final class MainActivity extends Activity {
                 @Override public void run() {
                     final String ip = findMeshIp();
                     final String mac = canConnect(nodeConfig("mac_host", "mac"), 22) ? "ONLINE" : "OFFLINE";
-                    final String disk = canConnect(nodeConfig("lolile_host", "lolile"), 22) ? "ONLINE" : "OFFLINE";
+                    final String disk = canConnect(nodeConfig("lolile_host", "lolile"), 445) ? "ONLINE" : "OFFLINE";
                     final String ssh = canConnect("127.0.0.1", 8022) ? "READY" : "STOPPED";
                     handler.post(new Runnable() {
                         @Override public void run() {
@@ -849,8 +860,8 @@ public final class MainActivity extends Activity {
             type(7, mintDim, true); c.drawText("// WORKSPACE", left, dp(211), paint);
             float half = (right - left - gap) / 2f;
             button(c, new RectF(left, dp(221), left + half, dp(277)), "CLI", "CODEX", "MAC • REAL CLI", true, "CODEX");
-            button(c, new RectF(left + half + gap, dp(221), right, dp(277)), "SFTP", "LOLILE DISK", "B:\\ • TAILNET", true, "DISK");
-            button(c, new RectF(left, dp(285), left + half, dp(341)), "TOUCH", "REMOTE", "4 DEVICES", false, "REMOTE");
+            button(c, new RectF(left + half + gap, dp(221), right, dp(277)), "SMB3", "LOLILE KUREK", "smb://lolile/kurek", true, "DISK");
+            button(c, new RectF(left, dp(285), left + half, dp(341)), "GOOGLE", "REMOTE", "CHROME REMOTE DESKTOP", false, "REMOTE");
             button(c, new RectF(left + half + gap, dp(285), right, dp(341)), "LINUX", "DEBIAN", "LOCAL PROOT", false, "LOCAL");
 
             type(7, mintDim, true); c.drawText("// INTELLIGENCE", left, dp(363), paint);
@@ -868,8 +879,8 @@ public final class MainActivity extends Activity {
             type(6.2f, ghost, false); c.drawText(trimText(agendaTwo, 52), agenda.left + dp(10), dp(506), paint); addHit(agenda, "CALENDAR");
 
             type(7, mintDim, true); c.drawText("// PINNED", left, dp(535), paint);
-            String[] names = {pinnedName(0), pinnedName(1), pinnedName(2), pinnedName(3), "REMEM", "OBSID"};
-            String[] actions = {pinnedAction(0), pinnedAction(1), pinnedAction(2), pinnedAction(3), "REMEMBER", "OBSIDIAN"};
+            String[] names = {pinnedName(0), pinnedName(1), pinnedName(2), pinnedName(3), "REMEM", "RM-OS"};
+            String[] actions = {pinnedAction(0), pinnedAction(1), pinnedAction(2), pinnedAction(3), "REMEMBER", "RMOS"};
             float cardW = (right - left - gap * 5f) / 6f;
             for (int i = 0; i < 6; i++) {
                 RectF r = new RectF(left + i * (cardW + gap), dp(545), left + i * (cardW + gap) + cardW, dp(594));
@@ -893,8 +904,8 @@ public final class MainActivity extends Activity {
 
             float tileTop = dp(199), tileH = (bottom - tileTop - gap) / 2f, tileW = (col - gap) / 2f;
             button(c, new RectF(x1, tileTop, x1 + tileW, tileTop + tileH), "CLI", "CODEX", "MAC CLI", true, "CODEX");
-            button(c, new RectF(x1 + tileW + gap, tileTop, x1 + col, tileTop + tileH), "SFTP", "DISK", "LOLILE B:\\", true, "DISK");
-            button(c, new RectF(x1, tileTop + tileH + gap, x1 + tileW, bottom), "TOUCH", "REMOTE", "4 DEVICES", false, "REMOTE");
+            button(c, new RectF(x1 + tileW + gap, tileTop, x1 + col, tileTop + tileH), "SMB3", "DISK", "LOLILE / KUREK", true, "DISK");
+            button(c, new RectF(x1, tileTop + tileH + gap, x1 + tileW, bottom), "GOOGLE", "REMOTE", "CHROME RD", false, "REMOTE");
             button(c, new RectF(x1 + tileW + gap, tileTop + tileH + gap, x1 + col, bottom), "LINUX", "DEBIAN", "LOCAL", false, "LOCAL");
 
             RectF remember = new RectF(x2, top, x2 + col, dp(174));
@@ -902,7 +913,7 @@ public final class MainActivity extends Activity {
             type(7, soft, false); c.drawText(trimText(rememberLine, 34), x2 + dp(12), top + dp(48), paint);
             type(6, ghost, false); c.drawText("TAP → VIEW / CAPTURE • 45831", x2 + dp(12), top + dp(73), paint); addHit(remember, "REMEMBER");
             RectF obsidian = new RectF(x2, dp(182), x2 + col, dp(239));
-            button(c, obsidian, "MD", "OBSIDIAN", "DAAK VAULT • LOCAL", false, "OBSIDIAN");
+            button(c, obsidian, "MD", "RM-OS / OBSIDIAN", "DAAK VAULT • SYNCED", true, "RMOS");
             float miniTop = dp(247), miniW = (col - gap * 2f) / 3f;
             String[] miniNames = {pinnedName(0), pinnedName(1), "MAIL"};
             String[] miniActions = {pinnedAction(0), pinnedAction(1), "MAIL"};
@@ -969,7 +980,7 @@ public final class MainActivity extends Activity {
         void drawHelpLandscape(Canvas c) {
             float left = dp(16), right = getWidth() - dp(16), top = dp(67), bottom = getHeight() - dp(58), gap = dp(8);
             String[] lines = {
-                    "CODEX → Mac gerçek CLI", "LOLILE → B:\\ Tailnet SFTP", "REMEMBER → Mac TailSync", "OBSIDIAN → DAAK Vault",
+                    "CODEX → çalışma alanı seç", "LOLILE → smb://lolile/kurek", "REMEMBER → Mac TailSync", "RM-OS → Obsidian Vault",
                     "MAIL → 5+ hesap salt okunur", "AGENDA → Android Calendar", "VAULT → biyometri/PIN", "APPS → ara ve çalıştır"
             };
             float colW = (right - left - gap * 3f) / 4f, rowH = (bottom - top - gap) / 2f;
@@ -984,42 +995,32 @@ public final class MainActivity extends Activity {
             float left = dp(16), right = getWidth() - dp(16), top = dp(67), bottom = getHeight() - dp(58), gap = dp(8);
             String[][] tiles = {
                     {"VPN", "TAILSCALE", "PKG:com.tailscale.ipn"}, {"PC", "DAAK LOLILE", "LOLILE_HUB"}, {"PIN", "PINNED APPS", "PINS"}, {"KEY", "KEYBOARD", "SET:INPUT"},
-                    {"SEC", "BIOMETRICS", "SET:SECURITY"}, {"WA", "WHATSAPP TASKS", "WHATSAPP"}, {"MIC", "DAAK INBOX", "DICTATE"}, {"UP", "UPDATE", "CHECK_UPDATE"}
+                    {"SEC", "BIOMETRICS", "SET:SECURITY"}, {"WA", "WHATSAPP TASKS", "WHATSAPP"}, {"MIC", "DAAK INBOX", "DICTATE"}, {"UP", "UPDATE", "CHECK_UPDATE"},
+                    {"ALM", "FOSSIFY CLOCK", "PKG:org.fossify.clock"}, {"ZZZ", "SLEEP TRACKER", "PKG:hu.vmiklos.plees_tracker"}
             };
-            float colW = (right - left - gap * 3f) / 4f, rowH = (bottom - top - gap) / 2f;
+            float colW = (right - left - gap * 4f) / 5f, rowH = (bottom - top - gap) / 2f;
             for (int i = 0; i < tiles.length; i++) {
-                int row = i / 4, colIndex = i % 4;
+                int row = i / 5, colIndex = i % 5;
                 RectF r = new RectF(left + colIndex * (colW + gap), top + row * (rowH + gap), left + colIndex * (colW + gap) + colW, top + row * (rowH + gap) + rowH);
                 button(c, r, tiles[i][0], tiles[i][1], i == 0 ? meshIp : "OPEN PANEL", i == 7, tiles[i][2]);
             }
         }
 
-        String remoteEndpoint(int index) {
-            SharedPreferences prefs = getSharedPreferences(NodeStore.PREFS, 0);
-            String[] keys = {"remote_lolile", "remote_mac", "remote_bedirhan_mac", "remote_bedirhan_windows"};
-            String fallback = nodeConfig(keys[index], "").trim();
-            if (fallback.length() == 0 && index == 0) fallback = nodeConfig("lolile_host", "lolile");
-            else if (fallback.length() == 0 && index == 1) fallback = nodeConfig("mac_host", "mac");
-            return prefs.getString(keys[index], fallback).trim();
-        }
-
         void drawRemote(Canvas c) {
             float left = dp(16), right = getWidth() - dp(16), gap = dp(8);
             type(17, mint, true); c.drawText("REMOTE // TOUCH DESKTOP", left, dp(88), paint);
-            type(7, soft, false); c.drawText("RUSTDESK • TAILNET DIRECT • NO PUBLIC PORT", left, dp(107), paint);
+            type(7, soft, false); c.drawText("CHROME REMOTE DESKTOP • GOOGLE ACCOUNT", left, dp(107), paint);
             String[] names = {"LOLILE WINDOWS", "MY MAC", "BEDIRHAN MAC", "BEDIRHAN WINDOWS"};
             float half = (right - left - gap) / 2f, top = dp(124), h = dp(92);
             for (int i = 0; i < names.length; i++) {
                 int row = i / 2, col = i % 2;
-                String endpoint = remoteEndpoint(i);
                 RectF r = new RectF(left + col * (half + gap), top + row * (h + gap),
                         left + col * (half + gap) + half, top + row * (h + gap) + h);
-                button(c, r, "TOUCH", names[i], endpoint.length() == 0 ? "NOT CONFIGURED" : trimText(endpoint, 24),
-                        i < 2, "REMOTE_CONNECT:" + i);
+                button(c, r, "GOOGLE", names[i], "OPEN DEVICE LIST", i < 2, "REMOTE_CONNECT:" + i);
             }
             RectF configure = new RectF(left, top + dp(208), right, top + dp(278));
-            button(c, configure, "EDIT", "REMOTE DEVICES", "IDS / TAILNET IP • LOCAL ONLY", false, "REMOTE_CONFIG");
-            type(7, ghost, false); c.drawText("RustDesk toolbar → Touch mode • keyboard icon → on-screen keys", left, top + dp(304), paint);
+            button(c, configure, "GOOGLE", "REMOTE DEVICES", "SIGN IN / DEVICE LIST", false, "REMOTE_CONFIG");
+            type(7, ghost, false); c.drawText("Google hesabın → cihazı seç → touchpad / touch controls", left, top + dp(304), paint);
         }
 
         void drawRemoteLandscape(Canvas c) {
@@ -1027,59 +1028,80 @@ public final class MainActivity extends Activity {
             String[] names = {"LOLILE WINDOWS", "MY MAC", "BEDIRHAN MAC", "BEDIRHAN WINDOWS"};
             float side = dp(180), listLeft = left + side + gap;
             RectF configure = new RectF(left, top, left + side, bottom);
-            button(c, configure, "REMOTE", "TOUCH HUB", "TAP TO CONFIGURE", true, "REMOTE_CONFIG");
+            button(c, configure, "GOOGLE", "REMOTE HUB", "SIGN IN / DEVICE LIST", true, "REMOTE_CONFIG");
             float cell = (right - listLeft - gap) / 2f, h = (bottom - top - gap) / 2f;
             for (int i = 0; i < names.length; i++) {
                 int row = i / 2, col = i % 2;
-                String endpoint = remoteEndpoint(i);
                 RectF r = new RectF(listLeft + col * (cell + gap), top + row * (h + gap),
                         listLeft + col * (cell + gap) + cell, top + row * (h + gap) + h);
-                button(c, r, "TOUCH", names[i], endpoint.length() == 0 ? "NOT CONFIGURED" : trimText(endpoint, 27),
-                        i < 2, "REMOTE_CONNECT:" + i);
+                button(c, r, "GOOGLE", names[i], "OPEN DEVICE LIST", i < 2, "REMOTE_CONNECT:" + i);
             }
         }
 
         void connectRemote(int index) {
-            String endpoint = remoteEndpoint(index);
-            if (endpoint.length() == 0) { showRemoteConfig(index); return; }
-            try {
-                String target = endpoint.endsWith(":21118") ? endpoint.substring(0, endpoint.length() - 6) : endpoint;
-                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("rustdesk://connect/" + Uri.encode(target)));
-                intent.setPackage("com.carriez.flutter_hbb"); startActivity(intent);
-            } catch (RuntimeException error) { launchPackage("com.carriez.flutter_hbb"); }
+            launchChromeRemoteDesktop();
         }
 
         void showRemoteConfig() {
-            final String[] names = {"LOLILE Windows", "My Mac", "Bedirhan Mac", "Bedirhan Windows"};
-            new AlertDialog.Builder(MainActivity.this).setTitle("REMOTE // DEVICE SELECT")
-                    .setItems(names, (dialog, which) -> showRemoteConfig(which))
-                    .setPositiveButton("RUSTDESK", (d, which) -> launchPackage("com.carriez.flutter_hbb"))
-                    .setNegativeButton("KAPAT", null).show();
+            launchChromeRemoteDesktop();
         }
 
-        void showRemoteConfig(final int index) {
-            final String[] keys = {"remote_lolile", "remote_mac", "remote_bedirhan_mac", "remote_bedirhan_windows"};
-            final String[] names = {"LOLILE Windows", "My Mac", "Bedirhan Mac", "Bedirhan Windows"};
-            final EditText input = new EditText(MainActivity.this);
-            input.setSingleLine(true); input.setHint("RustDesk ID or Tailnet IP"); input.setText(remoteEndpoint(index));
-            new AlertDialog.Builder(MainActivity.this).setTitle(names[index])
-                    .setMessage("Şifre burada tutulmaz; RustDesk güvenli deposunda kalır.")
-                    .setView(input)
-                    .setPositiveButton("KAYDET", (d, which) -> {
-                        getSharedPreferences(NodeStore.PREFS, 0).edit().putString(keys[index], input.getText().toString().trim()).apply();
-                        invalidate();
-                    })
-                    .setNeutralButton("TEMİZLE", (d, which) -> {
-                        getSharedPreferences(NodeStore.PREFS, 0).edit().putString(keys[index], "").apply(); invalidate();
+        void launchChromeRemoteDesktop() {
+            Intent launch = getPackageManager().getLaunchIntentForPackage("com.google.chromeremotedesktop");
+            if (launch != null) { startActivity(launch); return; }
+            try {
+                Intent store = new Intent(Intent.ACTION_VIEW,
+                        Uri.parse("market://details?id=com.google.chromeremotedesktop"));
+                store.setPackage("com.android.vending"); startActivity(store);
+            } catch (RuntimeException error) {
+                startActivity(new Intent(Intent.ACTION_VIEW,
+                        Uri.parse("https://play.google.com/store/apps/details?id=com.google.chromeremotedesktop")));
+            }
+        }
+
+        void showCodexChooser() {
+            final String[] options = {
+                    "PROJESİZ // BOŞ ÇALIŞMA ALANI",
+                    "DAAK HUB // RM-OS + OBSIDIAN",
+                    "PROJE TELEFONU",
+                    "MAC KLASÖR YOLU GİR"
+            };
+            new AlertDialog.Builder(MainActivity.this).setTitle("CODEX CLI // WORKSPACE")
+                    .setItems(options, (dialog, which) -> {
+                        if (which == 0) launchCodexWorkspace("standalone", "");
+                        else if (which == 1) launchCodexWorkspace("hub", "");
+                        else if (which == 2) launchCodexWorkspace("phone", "");
+                        else showCodexCustomPath();
                     })
                     .setNegativeButton("İPTAL", null).show();
+        }
+
+        void showCodexCustomPath() {
+            final EditText input = new EditText(MainActivity.this);
+            input.setSingleLine(true);
+            input.setHint("/Users/kai/Documents/proje-adi");
+            new AlertDialog.Builder(MainActivity.this).setTitle("MAC PROJE KLASÖRÜ")
+                    .setMessage("Documents veya DAAK çalışma alanı içindeki mevcut bir klasörü yaz.")
+                    .setView(input)
+                    .setPositiveButton("CODEX AÇ", (dialog, which) -> {
+                        String path = input.getText().toString().trim();
+                        if (path.length() == 0) { toast("Klasör yolu boş"); return; }
+                        String encoded = Base64.encodeToString(path.getBytes(Charset.forName("UTF-8")), Base64.NO_WRAP);
+                        launchCodexWorkspace("custom", encoded);
+                    })
+                    .setNegativeButton("İPTAL", null).show();
+        }
+
+        void launchCodexWorkspace(String mode, String encoded) {
+            guarded(() -> runTermux("exec ~/.shortcuts/codex " + mode +
+                    (encoded.length() == 0 ? "" : " " + encoded), "CODEX CLI"));
         }
 
         void drawDiskLandscape(Canvas c) {
             float left = dp(16), right = getWidth() - dp(16), top = dp(67), bottom = getHeight() - dp(58), gap = dp(8);
             float side = dp(190), listLeft = left + side + gap;
             RectF refresh = new RectF(left, top, left + side, bottom);
-            button(c, refresh, "SFTP", trimText(diskPath, 22), diskState + " • TAP REFRESH", true, "DISK_REFRESH");
+            button(c, refresh, "SMB3", trimText(diskPath, 22), diskState + " • TAP REFRESH", true, "DISK_REFRESH");
             float colW = (right - listLeft - gap) / 2f, rowH = dp(42);
             if (diskItems.isEmpty()) { type(9, soft, false); c.drawText(diskMessage, listLeft, top + dp(28), paint); }
             else for (int i = 0; i < diskItems.size() && i < 12; i++) {
@@ -1095,7 +1117,7 @@ public final class MainActivity extends Activity {
             type(17, mint, true); c.drawText("HELP // START HERE", left, dp(88), paint);
             String[] lines = {
                     "CODEX  → Mac'teki gerçek Codex CLI; API kullanmaz.",
-                    "LOLILE → B:\\ diski; Tailscale + Ed25519 SFTP.",
+                    "LOLILE → smb://lolile/kurek; Tailscale + SMB3.",
                     "LOCAL  → Telefonda Debian Linux ortamı.",
                     "APPS   → Tüm uygulamalar; dokun, ara, kaydır.",
                     "VAULT  → Kritik komutlar için 90 sn biyometrik izin.",
@@ -1125,28 +1147,29 @@ public final class MainActivity extends Activity {
                     {"VPN", "TAILSCALE", "PKG:com.tailscale.ipn"}, {"PC", "DAAK LOLILE", "LOLILE_HUB"},
                     {"PIN", "PINNED APPS", "PINS"}, {"KEY", "KEYBOARD", "SET:INPUT"},
                     {"SEC", "BIOMETRICS", "SET:SECURITY"}, {"WA", "WHATSAPP TASKS", "WHATSAPP"},
-                    {"UP", "UPDATE", "CHECK_UPDATE"}, {"MIC", "DAAK INBOX", "DICTATE"}
+                    {"UP", "UPDATE", "CHECK_UPDATE"}, {"MIC", "DAAK INBOX", "DICTATE"},
+                    {"ALM", "FOSSIFY CLOCK", "PKG:org.fossify.clock"}, {"ZZZ", "SLEEP TRACKER", "PKG:hu.vmiklos.plees_tracker"}
             };
-            float half = (right - left - gap) / 2f, top = dp(124), h = dp(71);
+            float half = (right - left - gap) / 2f, top = dp(124), h = dp(58);
             for (int i = 0; i < tiles.length; i++) {
                 int row = i / 2, col = i % 2;
                 RectF r = new RectF(left + col * (half + gap), top + row * (h + gap),
                         left + col * (half + gap) + half, top + row * (h + gap) + h);
                 button(c, r, tiles[i][0], tiles[i][1], i == 0 ? meshIp : "OPEN PANEL", false, tiles[i][2]);
             }
-            RectF refresh = new RectF(left, top + dp(326), right, top + dp(397));
+            RectF refresh = new RectF(left, top + dp(330), right, top + dp(388));
             button(c, refresh, "SCAN", "REFRESH NODE STATUS", "NO CHANGES • READ ONLY", true, "REFRESH");
         }
 
         void drawDisk(Canvas c) {
             float left = dp(16), right = getWidth() - dp(16);
             type(17, mint, true); c.drawText("LOLILE // " + trimText(diskPath, 27), left, dp(88), paint);
-            type(7, soft, false); c.drawText("TAILSCALE • ED25519 SFTP • " + diskState, left, dp(107), paint);
+            type(7, soft, false); c.drawText("TAILSCALE • SMB3 ENCRYPTED • " + diskState, left, dp(107), paint);
             float gap = dp(8), half = (right - left - gap) / 2f;
             RectF back = new RectF(left, dp(120), left + half, dp(180));
             RectF refresh = new RectF(left + half + gap, dp(120), right, dp(180));
             button(c, back, "BACK", "UP ONE LEVEL", "NATIVE BROWSER", false, "DISK_UP");
-            button(c, refresh, "SFTP", "REFRESH", "PRIVATE TAILNET", true, "DISK_REFRESH");
+            button(c, refresh, "SMB3", "REFRESH", "PRIVATE TAILNET", true, "DISK_REFRESH");
             float y = dp(194);
             if (diskItems.isEmpty()) {
                 type(9, soft, false); c.drawText(diskMessage, left, y + dp(24), paint);
@@ -1159,7 +1182,7 @@ public final class MainActivity extends Activity {
                     c.drawText(item, left + dp(10), y + dp(27), paint); addHit(row, "DISK_ITEM:" + i); y += dp(46);
                 }
             }
-            type(7, ghost, false); c.drawText("Klasöre dokun → gez • dosyaya dokun → güvenli SFTP", left, getHeight() - dp(91), paint);
+            type(7, ghost, false); c.drawText("Klasöre dokun → gez • dosyaya dokun → güvenli SMB3", left, getHeight() - dp(91), paint);
         }
 
         void refreshDiskIndex() {
@@ -1169,18 +1192,9 @@ public final class MainActivity extends Activity {
             final long request = diskRequestToken;
             diskMessage = "Refreshing over Tailnet...";
             message = "LOLILE INDEX REFRESHING"; invalidate();
-            String escaped = diskPath.replace("'", "''");
-            String ps = "$p='" + escaped + "';[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;" +
-                    "Write-Output ('[P] '+$p);Get-ChildItem -LiteralPath $p | Sort-Object @{Expression={-not $_.PSIsContainer}},Name | " +
-                    "ForEach-Object { if ($_.PSIsContainer) { '[D] ' + $_.Name } else { '[F] ' + $_.Name } }";
-            String encoded = Base64.encodeToString(ps.getBytes(Charset.forName("UTF-16LE")), Base64.NO_WRAP);
+            String encoded = Base64.encodeToString(diskPath.getBytes(Charset.forName("UTF-8")), Base64.NO_WRAP);
             String target = "/sdcard/Download/daak-lolile-list.txt";
-            String temporary = target + "." + request + ".tmp";
-            String command = "if ssh -o ConnectTimeout=8 lolile powershell.exe -NoProfile -EncodedCommand " + encoded +
-                    " > " + temporary + " 2>/dev/null; then printf '\\n[OK] " + request + "\\n' >> " + temporary +
-                    "; mv -f " + temporary + " " + target +
-                    "; else printf '[ERR] " + request + "\\n' > " + temporary +
-                    "; mv -f " + temporary + " " + target + "; fi";
+            String command = "exec ~/.shortcuts/lolile-list " + encoded + " " + request + " " + target;
             runTermuxRaw(command, true, null);
             handler.postDelayed(() -> pollDiskIndex(request, 0), 1000L);
         }
@@ -1216,7 +1230,7 @@ public final class MainActivity extends Activity {
                     else if (lineText.trim().length() > 0) loaded.add(lineText.trim());
                 }
                 reader.close();
-                if (loadedPath != null) diskPath = loadedPath.equalsIgnoreCase("B:") ? "B:\\" : loadedPath;
+                if (loadedPath != null && (loadedPath.equals(DISK_ROOT) || loadedPath.startsWith(DISK_ROOT + "/"))) diskPath = loadedPath;
                 if (!loaded.isEmpty() && (complete || !requireComplete)) {
                     diskItems.clear(); diskItems.addAll(loaded);
                 }
@@ -1224,7 +1238,7 @@ public final class MainActivity extends Activity {
             if (!complete) return false;
             diskLoading = false;
             if (failed) {
-                diskMessage = diskItems.isEmpty() ? "SSH/SFTP failed • tap REFRESH" : "Refresh failed • showing cache";
+                diskMessage = diskItems.isEmpty() ? "SMB3 failed • tap REFRESH" : "Refresh failed • showing cache";
                 message = "LOLILE INDEX ERROR";
             } else {
                 diskMessage = loaded.isEmpty() ? "Folder is empty" : loaded.size() + " items • live";
@@ -1238,7 +1252,7 @@ public final class MainActivity extends Activity {
             String item = diskItems.get(index);
             String name = item.length() > 4 ? item.substring(4) : "";
             if (item.startsWith("[D] ")) {
-                if (!diskPath.endsWith("\\")) diskPath += "\\";
+                if (!diskPath.endsWith("/")) diskPath += "/";
                 diskPath += name;
                 refreshDiskIndex();
             } else openDiskTerminal();
@@ -1246,15 +1260,15 @@ public final class MainActivity extends Activity {
 
         void diskUp() {
             String current = diskPath;
-            while (current.endsWith("\\") && current.length() > 3) current = current.substring(0, current.length() - 1);
-            int slash = current.lastIndexOf('\\');
-            diskPath = slash < 2 ? "B:\\" : current.substring(0, slash);
+            while (current.endsWith("/") && current.length() > DISK_ROOT.length()) current = current.substring(0, current.length() - 1);
+            int slash = current.lastIndexOf('/');
+            diskPath = slash < DISK_ROOT.length() ? DISK_ROOT : current.substring(0, slash);
             refreshDiskIndex();
         }
 
         void openDiskTerminal() {
             String encoded = Base64.encodeToString(diskPath.getBytes(Charset.forName("UTF-8")), Base64.NO_WRAP);
-            runTermux("exec ~/.shortcuts/lolile-disk " + encoded, "LOLILE SFTP");
+            runTermux("exec ~/.shortcuts/lolile-disk " + encoded, "LOLILE SMB3");
         }
 
         void drawDock(Canvas c) {
@@ -1523,11 +1537,32 @@ public final class MainActivity extends Activity {
         }
 
         void launchObsidian() {
+            openObsidianFile("daakREMEMBER.md");
+        }
+
+        void openObsidianFile(String file) {
             try {
                 Intent intent = new Intent(Intent.ACTION_VIEW,
-                        Uri.parse("obsidian://open?vault=DAAK-Vault&file=daakREMEMBER.md"));
+                        Uri.parse("obsidian://open?vault=DAAK-Vault&file=" + Uri.encode(file)));
                 intent.setPackage("md.obsidian"); startActivity(intent);
             } catch (RuntimeException error) { launchPackage("md.obsidian"); }
+        }
+
+        void showRmOsPanel() {
+            final String[] options = {
+                    "RM-OS ANA SAYFA",
+                    "RM-OS CAPTURE // YENİ NOT",
+                    "RM-OS SENKRON DURUMU",
+                    "daakREMEMBER"
+            };
+            new AlertDialog.Builder(MainActivity.this).setTitle("RM-OS // KNOWLEDGE FABRIC")
+                    .setItems(options, (dialog, which) -> {
+                        if (which == 0) openObsidianFile("RM-OS/README.md");
+                        else if (which == 1) openObsidianFile("RM-OS Capture.md");
+                        else if (which == 2) openObsidianFile("RM-OS Sync Status.md");
+                        else launchObsidian();
+                    })
+                    .setNegativeButton("KAPAT", null).show();
         }
 
         @Override public boolean onTouchEvent(MotionEvent event) {
@@ -1572,6 +1607,7 @@ public final class MainActivity extends Activity {
             else if (a.equals("MAIL")) showMailPanel();
             else if (a.equals("REMEMBER")) showRememberPanel();
             else if (a.equals("OBSIDIAN")) launchObsidian();
+            else if (a.equals("RMOS")) showRmOsPanel();
             else if (a.equals("WEATHER")) showWeatherSetup();
             else if (a.equals("PINS")) showPinnedManager();
             else if (a.equals("WHATSAPP")) showWhatsAppPanel();
@@ -1589,7 +1625,7 @@ public final class MainActivity extends Activity {
             else if (a.equals("DISK_UP")) diskUp();
             else if (a.startsWith("DISK_ITEM:")) openDiskItem(Integer.parseInt(a.substring(10)));
             else if (a.equals("DISK_TERM")) openDiskTerminal();
-            else if (a.equals("CODEX")) guarded(() -> runTermux("exec ~/.shortcuts/codex", "CODEX CLI"));
+            else if (a.equals("CODEX")) showCodexChooser();
             else if (a.equals("MAC")) guarded(() -> runTermux("exec ~/.shortcuts/mac", "MAC SSH"));
             else if (a.equals("LOCAL")) guarded(() -> runTermux("exec ~/.shortcuts/debian", "DEBIAN"));
             else if (a.equals("DISK")) guarded(() -> { showMode(DISK_VIEW); loadCachedDiskIndex(); refreshDiskIndex(); });
