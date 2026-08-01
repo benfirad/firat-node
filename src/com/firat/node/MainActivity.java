@@ -549,7 +549,8 @@ public final class MainActivity extends Activity {
             int delay = minutes[Math.min(diskRetryStep, minutes.length - 1)];
             diskRetryStep++;
             nextDiskRetry = now + delay * 60_000L;
-            runTermuxRaw("exec ~/.shortcuts/lolile-list", true, null);
+            String root = Base64.encodeToString(DISK_ROOT.getBytes(Charset.forName("UTF-8")), Base64.NO_WRAP);
+            runTermuxRaw("exec ~/.shortcuts/lolile-list " + root + " 0 /sdcard/Download/daak-lolile-health.txt", true, null);
         }
 
         void updateMailLine() {
@@ -1201,6 +1202,31 @@ public final class MainActivity extends Activity {
 
         void loadCachedDiskIndex() {
             readDiskIndex(0L, false);
+            if (diskItems.isEmpty()) loadPrivateDiskCache();
+        }
+
+        void loadPrivateDiskCache() {
+            try {
+                SharedPreferences prefs = getSharedPreferences(NodeStore.PREFS, 0);
+                String cachedPath = prefs.getString("kurek_cache_path", DISK_ROOT);
+                JSONArray cached = new JSONArray(prefs.getString("kurek_cache_items", "[]"));
+                if (cachedPath.equals(DISK_ROOT) || cachedPath.startsWith(DISK_ROOT + "/")) diskPath = cachedPath;
+                if (cached.length() > 0) {
+                    diskItems.clear();
+                    for (int i = 0; i < cached.length(); i++) diskItems.add(cached.getString(i));
+                    diskMessage = diskItems.size() + " items • cached";
+                }
+            } catch (Exception ignored) { }
+        }
+
+        void persistPrivateDiskCache(String path, List<String> items) {
+            try {
+                JSONArray cached = new JSONArray();
+                for (String item : items) cached.put(item);
+                getSharedPreferences(NodeStore.PREFS, 0).edit()
+                        .putString("kurek_cache_path", path)
+                        .putString("kurek_cache_items", cached.toString()).apply();
+            } catch (Exception ignored) { }
         }
 
         void pollDiskIndex(final long request, final int attempt) {
@@ -1225,8 +1251,12 @@ public final class MainActivity extends Activity {
                 String lineText;
                 while ((lineText = reader.readLine()) != null) {
                     if (lineText.startsWith("[P] ")) loadedPath = lineText.substring(4).trim();
-                    else if (lineText.equals("[OK] " + expectedToken)) complete = true;
-                    else if (lineText.equals("[ERR] " + expectedToken)) { complete = true; failed = true; }
+                    else if (lineText.startsWith("[OK] ")) {
+                        if (lineText.equals("[OK] " + expectedToken)) complete = true;
+                    }
+                    else if (lineText.startsWith("[ERR] ")) {
+                        if (lineText.equals("[ERR] " + expectedToken)) { complete = true; failed = true; }
+                    }
                     else if (lineText.trim().length() > 0) loaded.add(lineText.trim());
                 }
                 reader.close();
@@ -1243,6 +1273,7 @@ public final class MainActivity extends Activity {
             } else {
                 diskMessage = loaded.isEmpty() ? "Folder is empty" : loaded.size() + " items • live";
                 message = "LOLILE INDEX READY";
+                if (loadedPath != null) persistPrivateDiskCache(loadedPath, loaded);
             }
             invalidate(); return true;
         }

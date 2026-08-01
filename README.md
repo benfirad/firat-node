@@ -10,6 +10,7 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Biometric/device-credential vault for Codex, SSH and Debian actions
 - Direct Codex CLI control over Termux + SSH (no API integration in the launcher)
 - Tailnet-only Mac and Windows/Lolie status, SSH and navigable `smb://lolile/kurek` SMB3 workflows
+- Last-known-good Kurek index caching, so transient SMB retries never blank the disk interface
 - daakLOLILE private dashboard integration
 - Chrome Remote Desktop hub for the Google-account device list and touch-friendly remote control
 - Android Calendar Provider agenda with a read-only-by-default launcher view
