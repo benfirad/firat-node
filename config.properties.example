@@ -4,3 +4,8 @@ mac_host=your-mac.tailnet.example
 lolile_host=your-windows-node.tailnet.example
 # Optional; defaults to mac_host. daakREMEMBER listens on Tailnet TCP 45831.
 remember_host=your-mac.tailnet.example
+# Optional RustDesk IDs (preferred) or direct Tailnet endpoints.
+remote_lolile=
+remote_mac=
+remote_bedirhan_mac=
+remote_bedirhan_windows=

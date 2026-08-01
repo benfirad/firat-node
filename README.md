@@ -11,7 +11,7 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Direct Codex CLI control over Termux + SSH (no API integration in the launcher)
 - Tailnet-only Mac and Windows/Lolie status, SSH and navigable B-drive workflows
 - daakLOLILE private dashboard integration
-- Four-device RustDesk touch hub with locally configurable IDs or Tailnet endpoints
+- Four-device RustDesk touch hub with locally configurable IDs or Tailnet endpoints (default direct-access port 21118)
 - Android Calendar Provider agenda with a read-only-by-default launcher view
 - Thunderbird notification summaries at 07:30 and every hour
 - Local sender/spam filters; the launcher never sends email
@@ -42,7 +42,7 @@ Mail access is metadata-only through Android's notification listener: sender, su
 
 daakREMEMBER traffic uses its existing HTTP snapshot/merge protocol on TCP 45831. The companion Mac service rejects non-Tailnet source addresses; Tailscale supplies the encrypted transport. DAAK NODE does not expose a new listening port.
 
-Remote desktop targets are kept in Android private preferences and handed to RustDesk without embedding passwords. DAAK Inbox does not write a dictated item anywhere until the user selects a destination in its confirmation dialog.
+Remote desktop targets are kept in Android private preferences and handed to RustDesk without embedding passwords. For direct-IP mode, keep TCP 21118 limited to the Tailnet at the host firewall; Tailscale provides the encrypted transport. DAAK Inbox does not write a dictated item anywhere until the user selects a destination in its confirmation dialog.
 
 The Android package name remains `com.firat.node` so upgrades preserve launcher state, permissions and private preferences. The old `/sdcard/Download/firat-node/config.properties` path remains a read-only compatibility fallback.
 

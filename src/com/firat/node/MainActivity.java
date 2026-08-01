@@ -997,9 +997,9 @@ public final class MainActivity extends Activity {
         String remoteEndpoint(int index) {
             SharedPreferences prefs = getSharedPreferences(NodeStore.PREFS, 0);
             String[] keys = {"remote_lolile", "remote_mac", "remote_bedirhan_mac", "remote_bedirhan_windows"};
-            String fallback = "";
-            if (index == 0) fallback = nodeConfig("lolile_host", "lolile") + ":21118";
-            else if (index == 1) fallback = nodeConfig("mac_host", "mac") + ":21118";
+            String fallback = nodeConfig(keys[index], "").trim();
+            if (fallback.length() == 0 && index == 0) fallback = nodeConfig("lolile_host", "lolile");
+            else if (fallback.length() == 0 && index == 1) fallback = nodeConfig("mac_host", "mac");
             return prefs.getString(keys[index], fallback).trim();
         }
 
@@ -1043,7 +1043,8 @@ public final class MainActivity extends Activity {
             String endpoint = remoteEndpoint(index);
             if (endpoint.length() == 0) { showRemoteConfig(index); return; }
             try {
-                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("rustdesk://connect/" + Uri.encode(endpoint)));
+                String target = endpoint.endsWith(":21118") ? endpoint.substring(0, endpoint.length() - 6) : endpoint;
+                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("rustdesk://connect/" + Uri.encode(target)));
                 intent.setPackage("com.carriez.flutter_hbb"); startActivity(intent);
             } catch (RuntimeException error) { launchPackage("com.carriez.flutter_hbb"); }
         }
@@ -1060,7 +1061,7 @@ public final class MainActivity extends Activity {
             final String[] keys = {"remote_lolile", "remote_mac", "remote_bedirhan_mac", "remote_bedirhan_windows"};
             final String[] names = {"LOLILE Windows", "My Mac", "Bedirhan Mac", "Bedirhan Windows"};
             final EditText input = new EditText(MainActivity.this);
-            input.setSingleLine(true); input.setHint("RustDesk ID or Tailnet IP:21118"); input.setText(remoteEndpoint(index));
+            input.setSingleLine(true); input.setHint("RustDesk ID or Tailnet IP"); input.setText(remoteEndpoint(index));
             new AlertDialog.Builder(MainActivity.this).setTitle(names[index])
                     .setMessage("Şifre burada tutulmaz; RustDesk güvenli deposunda kalır.")
                     .setView(input)
