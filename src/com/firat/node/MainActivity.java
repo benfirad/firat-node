@@ -2,6 +2,7 @@ package com.firat.node;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.WallpaperManager;
 import android.content.ActivityNotFoundException;
 import android.content.ContentUris;
 import android.content.Context;
@@ -12,6 +13,7 @@ import android.content.pm.ResolveInfo;
 import android.database.Cursor;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Bitmap;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Typeface;
@@ -75,6 +77,7 @@ public final class MainActivity extends Activity {
         hideSystemBars();
         nodeView = new NodeView(this);
         setContentView(nodeView);
+        applyBlackWallpapers();
         NodeStore.schedule(this);
         ensureTermuxPermission();
         if (checkSelfPermission("com.termux.permission.RUN_COMMAND") == PackageManager.PERMISSION_GRANTED) {
@@ -104,6 +107,19 @@ public final class MainActivity extends Activity {
                 View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN |
                 View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION |
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+    }
+
+    private void applyBlackWallpapers() {
+        SharedPreferences prefs = getSharedPreferences(NodeStore.PREFS, 0);
+        if (prefs.getBoolean("black_wallpaper_v3", false)) return;
+        try {
+            Bitmap black = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888);
+            black.eraseColor(Color.BLACK);
+            WallpaperManager.getInstance(this).setBitmap(black, null, true,
+                    WallpaperManager.FLAG_SYSTEM | WallpaperManager.FLAG_LOCK);
+            black.recycle();
+            prefs.edit().putBoolean("black_wallpaper_v3", true).apply();
+        } catch (Exception ignored) { }
     }
 
     @Override public void onBackPressed() {
