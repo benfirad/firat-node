@@ -27,8 +27,8 @@ final class NodeStore {
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
             if (manager == null) return;
-            NotificationChannel channel = new NotificationChannel(CHANNEL, "Mail summaries", NotificationManager.IMPORTANCE_DEFAULT);
-            channel.setDescription("FIRAT NODE read-only mail summaries");
+            NotificationChannel channel = new NotificationChannel(CHANNEL, "DAAK summaries", NotificationManager.IMPORTANCE_DEFAULT);
+            channel.setDescription("DAAK NODE read-only mail and task summaries");
             manager.createNotificationChannel(channel);
         }
     }
@@ -73,6 +73,67 @@ final class NodeStore {
             }
         } catch (Exception ignored) { }
         return rows;
+    }
+
+    static synchronized String addWhatsAppTask(Context context, String sender, String text, long when) {
+        if (sender == null) sender = "WhatsApp";
+        if (text == null) text = "";
+        sender = sender.trim(); text = text.trim();
+        if (text.length() == 0 || !whatsAppAutomationEnabled(context) || ignoredWhatsApp(context, sender, text)) return null;
+        if (!looksActionable(text)) return null;
+        String fingerprint = Integer.toHexString((sender + "\n" + text).hashCode());
+        try {
+            SharedPreferences prefs = context.getSharedPreferences(PREFS, 0);
+            JSONArray seen = new JSONArray(prefs.getString("whatsapp_seen", "[]"));
+            for (int i = 0; i < seen.length(); i++) if (fingerprint.equals(seen.optString(i))) return null;
+            JSONArray nextSeen = new JSONArray(); nextSeen.put(fingerprint);
+            for (int i = 0; i < seen.length() && nextSeen.length() < 50; i++) nextSeen.put(seen.optString(i));
+
+            JSONArray old = new JSONArray(prefs.getString("whatsapp_tasks", "[]"));
+            JSONArray next = new JSONArray();
+            JSONObject fresh = new JSONObject();
+            fresh.put("sender", sender.substring(0, Math.min(sender.length(), 120)));
+            fresh.put("text", text.substring(0, Math.min(text.length(), 300)));
+            fresh.put("when", when); next.put(fresh);
+            for (int i = 0; i < old.length() && next.length() < 20; i++) next.put(old.getJSONObject(i));
+            prefs.edit().putString("whatsapp_seen", nextSeen.toString()).putString("whatsapp_tasks", next.toString()).apply();
+            return "WhatsApp • " + sender + ": " + text;
+        } catch (Exception ignored) { return null; }
+    }
+
+    static List<String> recentWhatsAppTasks(Context context, int limit) {
+        List<String> rows = new ArrayList<String>();
+        try {
+            JSONArray items = new JSONArray(context.getSharedPreferences(PREFS, 0).getString("whatsapp_tasks", "[]"));
+            for (int i = 0; i < items.length() && rows.size() < limit; i++) {
+                JSONObject item = items.getJSONObject(i);
+                rows.add(item.optString("sender") + " — " + item.optString("text"));
+            }
+        } catch (Exception ignored) { }
+        return rows;
+    }
+
+    static boolean whatsAppAutomationEnabled(Context context) {
+        return context.getSharedPreferences(PREFS, 0).getBoolean("whatsapp_tasks_enabled", true);
+    }
+
+    private static boolean ignoredWhatsApp(Context context, String sender, String text) {
+        String haystack = (sender + " " + text).toLowerCase(Locale.US);
+        String raw = context.getSharedPreferences(PREFS, 0).getString("ignored_whatsapp_senders", "");
+        for (String token : raw.split(",")) {
+            token = token.trim().toLowerCase(Locale.US);
+            if (token.length() > 0 && haystack.contains(token)) return true;
+        }
+        return false;
+    }
+
+    private static boolean looksActionable(String text) {
+        String value = text.toLowerCase(new Locale("tr", "TR"));
+        String[] markers = {"unutma", "hatırlat", "hatirlat", "yapar mısın", "yapar misin",
+                "yapabilir misin", "lütfen", "lutfen", "gönder", "gonder", "ara ", "alır mısın",
+                "alir misin", "getir", "son tarih", "deadline", "todo", "yapılacak", "yapilacak"};
+        for (String marker : markers) if (value.contains(marker)) return true;
+        return false;
     }
 
     static void clearSensitiveCache(Context context) {

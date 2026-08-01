@@ -2,7 +2,7 @@
 set -eu
 
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-output_apk=${OUTPUT_APK:-"$project_dir/FIRAT-NODE.apk"}
+output_apk=${OUTPUT_APK:-"$project_dir/DAAK-NODE.apk"}
 sdk_dir=${ANDROID_SDK_ROOT:-"$HOME/Library/Android/sdk"}
 android_jar="$sdk_dir/platforms/android-29/android.jar"
 build_tools="$sdk_dir/build-tools/35.0.1"

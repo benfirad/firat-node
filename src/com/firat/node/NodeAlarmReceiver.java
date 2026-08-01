@@ -23,7 +23,7 @@ public final class NodeAlarmReceiver extends BroadcastReceiver {
             since = start.getTimeInMillis();
         } else since = prefs.getLong("last_hourly", now - 60L * 60L * 1000L);
         List<String> rows = NodeStore.recentMail(context, since, 5);
-        String title = morning ? "07:30 // Günaydın Fırat" : "FIRAT NODE // Mail";
+        String title = morning ? "07:30 // Günaydın" : "DAAK NODE // Mail";
         String body = rows.isEmpty() ? "Yeni bir mailin yok, rahat ol." : rows.size() + " yeni mail: " + rows.get(0);
         Intent open = new Intent(context, MainActivity.class);
         PendingIntent pending = PendingIntent.getActivity(context, 703, open,

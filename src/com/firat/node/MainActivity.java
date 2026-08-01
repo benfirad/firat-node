@@ -29,12 +29,14 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.provider.CalendarContract;
 import android.net.Uri;
+import android.util.Base64;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
+import android.speech.RecognizerIntent;
 import android.widget.EditText;
 import android.widget.Toast;
 
@@ -49,6 +51,7 @@ import java.net.NetworkInterface;
 import java.net.Socket;
 import java.net.URL;
 import java.net.URLEncoder;
+import java.nio.charset.Charset;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -66,6 +69,7 @@ public final class MainActivity extends Activity {
     private static final int TERMUX_PERMISSION_REQUEST = 73;
     private static final int CALENDAR_PERMISSION_REQUEST = 74;
     private static final int LOCATION_PERMISSION_REQUEST = 75;
+    private static final int DICTATION_REQUEST = 76;
     private NodeView nodeView;
     private Runnable pendingProtectedAction;
     private CancellationSignal biometricCancellation;
@@ -92,6 +96,7 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         hideSystemBars();
+        RememberBridge.flushPending(getApplicationContext());
         if (nodeView != null) {
             nodeView.reloadApps();
             nodeView.startUpdates();
@@ -142,7 +147,8 @@ public final class MainActivity extends Activity {
     }
 
     @Override public void onBackPressed() {
-        if (nodeView != null && nodeView.mode != NodeView.HOME) nodeView.showMode(NodeView.HOME);
+        if (nodeView != null && nodeView.mode == NodeView.DISK_VIEW && !"B:\\".equals(nodeView.diskPath)) nodeView.diskUp();
+        else if (nodeView != null && nodeView.mode != NodeView.HOME) nodeView.showMode(NodeView.HOME);
         else super.onBackPressed();
     }
 
@@ -159,6 +165,25 @@ public final class MainActivity extends Activity {
         }
         if (code == CALENDAR_PERMISSION_REQUEST && nodeView != null) nodeView.refreshCalendar();
         if (code == LOCATION_PERMISSION_REQUEST && nodeView != null) nodeView.refreshWeather(true);
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != DICTATION_REQUEST || resultCode != RESULT_OK || data == null || nodeView == null) return;
+        ArrayList<String> results = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
+        if (results != null && !results.isEmpty()) nodeView.showDictationResult(results.get(0));
+    }
+
+    private void startDictation() {
+        try {
+            Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "tr-TR");
+            intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "DAAK DİKTE // cihaz üzerinde");
+            startActivityForResult(intent, DICTATION_REQUEST);
+        } catch (RuntimeException error) {
+            launchPackage("org.futo.voiceinput");
+        }
     }
 
     private void startSshdBackground() {
@@ -181,7 +206,7 @@ public final class MainActivity extends Activity {
             if (biometricCancellation != null) biometricCancellation.cancel();
             biometricCancellation = new CancellationSignal();
             BiometricPrompt prompt = new BiometricPrompt.Builder(this)
-                    .setTitle("FIRAT NODE // CONTROL VAULT")
+                    .setTitle("DAAK NODE // CONTROL VAULT")
                     .setSubtitle("Parmak izi, iris veya cihaz kilidi")
                     .setDeviceCredentialAllowed(true).build();
             prompt.authenticate(biometricCancellation, getMainExecutor(),
@@ -268,21 +293,7 @@ public final class MainActivity extends Activity {
     private void toast(String text) { Toast.makeText(this, text, Toast.LENGTH_SHORT).show(); }
 
     private String nodeConfig(String key, String fallback) {
-        File[] candidates = {
-                new File(getFilesDir(), "config.properties"),
-                new File("/sdcard/Download/firat-node/config.properties")
-        };
-        for (File file : candidates) {
-            Properties props = new Properties();
-            try {
-                FileReader reader = new FileReader(file);
-                props.load(reader);
-                reader.close();
-                String value = props.getProperty(key);
-                if (value != null && value.trim().length() > 0) return value.trim();
-            } catch (Exception ignored) { }
-        }
-        return fallback;
+        return NodeConfig.get(this, key, fallback);
     }
 
     private static final class AppEntry {
@@ -316,10 +327,11 @@ public final class MainActivity extends Activity {
         final List<AppEntry> shownApps = new ArrayList<AppEntry>();
         final List<String> diskItems = new ArrayList<String>();
         final List<String> rememberItems = new ArrayList<String>();
+        String diskPath = "B:\\";
         int mode = HOME;
         String query = "";
         String meshIp = "CHECKING", macState = "CHECKING", diskState = "CHECKING";
-        String sshState = "CHECKING", message = "FIRAT NODE V2 READY";
+        String sshState = "CHECKING", message = "DAAK NODE V5 READY";
         String weather = "TAP TO ENABLE", agendaOne = "Calendar permission required", agendaTwo = "";
         String mailLine = "Connect Thunderbird + notification access";
         String weatherCity = "";
@@ -329,7 +341,7 @@ public final class MainActivity extends Activity {
         float drawerScroll, downX, downY, lastY;
         boolean moved;
         float burnX, burnY;
-        long lastWeatherRefresh, nextDiskRetry;
+        long lastWeatherRefresh, nextDiskRetry, lastObsidianSync;
         int diskRetryStep;
         boolean active, destroyed, statusRefreshRunning;
         LocationManager pendingLocationManager;
@@ -357,7 +369,15 @@ public final class MainActivity extends Activity {
             handler.removeCallbacks(statusTicker);
             refreshStatus();
             refreshRemember();
+            syncObsidian(false);
             handler.postDelayed(statusTicker, 60_000L);
+        }
+
+        void syncObsidian(boolean force) {
+            long now = System.currentTimeMillis();
+            if (!force && now - lastObsidianSync < 10L * 60L * 1000L) return;
+            lastObsidianSync = now;
+            runTermuxRaw("exec ~/.shortcuts/remember-obsidian-sync", true, null);
         }
 
         void pauseUpdates() {
@@ -398,6 +418,20 @@ public final class MainActivity extends Activity {
             });
             applyFilter();
         }
+
+        AppEntry pinnedApp(int index) {
+            String[] defaults = {"org.oxycblt.auxio", "com.sec.android.app.camera",
+                    "io.github.yahiaangelo.filmsimulator.android", "ru.tech.imageresizershrinker"};
+            String wanted = getSharedPreferences(NodeStore.PREFS, 0).getString("pinned_" + index, defaults[index]);
+            for (AppEntry app : allApps) if (app.packageName.equals(wanted)) return app;
+            return new AppEntry("EMPTY", wanted);
+        }
+
+        String pinnedName(int index) {
+            return trimText(pinnedApp(index).label.toUpperCase(Locale.getDefault()), 7);
+        }
+
+        String pinnedAction(int index) { return "PKG:" + pinnedApp(index).packageName; }
 
         void applyFilter() {
             shownApps.clear();
@@ -529,9 +563,9 @@ public final class MainActivity extends Activity {
                     note.put("id", UUID.randomUUID().toString().toUpperCase(Locale.US));
                     note.put("text", text); note.put("createdAt", appleTime); note.put("updatedAt", appleTime);
                     note.put("isDone", false); note.put("deletedAt", JSONObject.NULL); items.put(note);
-                    JSONObject envelope = new JSONObject(); envelope.put("deviceName", "FIRAT NODE"); envelope.put("items", items);
+                    JSONObject envelope = new JSONObject(); envelope.put("deviceName", "DAAK NODE"); envelope.put("items", items);
                     rememberRequest("POST", "/merge", envelope.toString().getBytes("UTF-8"));
-                    handler.post(() -> { if (!destroyed) { message = "REMEMBER // SYNCED"; refreshRemember(); } });
+                    handler.post(() -> { if (!destroyed) { message = "REMEMBER // SYNCED"; syncObsidian(true); refreshRemember(); } });
                 } catch (Exception error) {
                     handler.post(() -> { if (!destroyed) { message = "REMEMBER // MAC OFFLINE"; invalidate(); } });
                 }
@@ -728,7 +762,7 @@ public final class MainActivity extends Activity {
 
         void drawTopBar(Canvas c) {
             float w = getWidth();
-            type(8, mintDim, true); c.drawText("FIRAT//NODE", dp(16), dp(25), paint);
+            type(8, mintDim, true); c.drawText("DAAK//NODE", dp(16), dp(25), paint);
             type(13, mint, true); c.drawText(new SimpleDateFormat("HH:mm", Locale.US).format(new Date()), dp(16), dp(45), paint);
             String state = meshIp.equals("OFFLINE") ? "NO MESH" : "TAILNET";
             type(8, meshIp.equals("OFFLINE") ? soft : mint, true);
@@ -774,9 +808,8 @@ public final class MainActivity extends Activity {
             type(6.2f, ghost, false); c.drawText(trimText(agendaTwo, 52), agenda.left + dp(10), dp(506), paint); addHit(agenda, "CALENDAR");
 
             type(7, mintDim, true); c.drawText("// PINNED", left, dp(535), paint);
-            String[] names = {"AUXIO", "CAMERA", "FILM", "TOOLBOX", "REMEM", "OBSID"};
-            String[] actions = {"PKG:org.oxycblt.auxio", "PKG:com.sec.android.app.camera",
-                    "PKG:io.github.yahiaangelo.filmsimulator.android", "PKG:ru.tech.imageresizershrinker", "REMEMBER", "OBSIDIAN"};
+            String[] names = {pinnedName(0), pinnedName(1), pinnedName(2), pinnedName(3), "REMEM", "OBSID"};
+            String[] actions = {pinnedAction(0), pinnedAction(1), pinnedAction(2), pinnedAction(3), "REMEMBER", "OBSIDIAN"};
             float cardW = (right - left - gap * 5f) / 6f;
             for (int i = 0; i < 6; i++) {
                 RectF r = new RectF(left + i * (cardW + gap), dp(545), left + i * (cardW + gap) + cardW, dp(594));
@@ -809,10 +842,10 @@ public final class MainActivity extends Activity {
             type(7, soft, false); c.drawText(trimText(rememberLine, 34), x2 + dp(12), top + dp(48), paint);
             type(6, ghost, false); c.drawText("TAP → VIEW / CAPTURE • 45831", x2 + dp(12), top + dp(73), paint); addHit(remember, "REMEMBER");
             RectF obsidian = new RectF(x2, dp(182), x2 + col, dp(239));
-            button(c, obsidian, "MD", "OBSIDIAN", "FIRAT VAULT • LOCAL", false, "OBSIDIAN");
+            button(c, obsidian, "MD", "OBSIDIAN", "DAAK VAULT • LOCAL", false, "OBSIDIAN");
             float miniTop = dp(247), miniW = (col - gap * 2f) / 3f;
-            String[] miniNames = {"AUXIO", "CAMERA", "MAIL"};
-            String[] miniActions = {"PKG:org.oxycblt.auxio", "PKG:com.sec.android.app.camera", "MAIL"};
+            String[] miniNames = {pinnedName(0), pinnedName(1), "MAIL"};
+            String[] miniActions = {pinnedAction(0), pinnedAction(1), "MAIL"};
             for (int i = 0; i < 3; i++) {
                 RectF r = new RectF(x2 + i * (miniW + gap), miniTop, x2 + i * (miniW + gap) + miniW, bottom);
                 box(c, r, 11, panel, line); type(6.5f, soft, true); center(c, miniNames[i], r.centerX(), r.centerY() + dp(3)); addHit(r, miniActions[i]);
@@ -876,7 +909,7 @@ public final class MainActivity extends Activity {
         void drawHelpLandscape(Canvas c) {
             float left = dp(16), right = getWidth() - dp(16), top = dp(67), bottom = getHeight() - dp(58), gap = dp(8);
             String[] lines = {
-                    "CODEX → Mac gerçek CLI", "LOLILE → B:\\ Tailnet SFTP", "REMEMBER → Mac TailSync", "OBSIDIAN → FIRAT Vault",
+                    "CODEX → Mac gerçek CLI", "LOLILE → B:\\ Tailnet SFTP", "REMEMBER → Mac TailSync", "OBSIDIAN → DAAK Vault",
                     "MAIL → 5+ hesap salt okunur", "AGENDA → Android Calendar", "VAULT → biyometri/PIN", "APPS → ara ve çalıştır"
             };
             float colW = (right - left - gap * 3f) / 4f, rowH = (bottom - top - gap) / 2f;
@@ -890,8 +923,8 @@ public final class MainActivity extends Activity {
         void drawControlLandscape(Canvas c) {
             float left = dp(16), right = getWidth() - dp(16), top = dp(67), bottom = getHeight() - dp(58), gap = dp(8);
             String[][] tiles = {
-                    {"VPN", "TAILSCALE", "PKG:com.tailscale.ipn"}, {"NET", "WI-FI", "SET:WIFI"}, {"RADIO", "BLUETOOTH", "SET:BT"}, {"UI", "DISPLAY", "SET:DISPLAY"},
-                    {"SEC", "BIOMETRICS", "SET:SECURITY"}, {"ALERT", "NOTIFY", "SET:NOTIFY"}, {"MAIL", "MAIL ACCESS", "SET:MAILACCESS"}, {"SCAN", "REFRESH", "REFRESH"}
+                    {"VPN", "TAILSCALE", "PKG:com.tailscale.ipn"}, {"PC", "DAAK LOLILE", "LOLILE_HUB"}, {"PIN", "PINNED APPS", "PINS"}, {"KEY", "KEYBOARD", "SET:INPUT"},
+                    {"SEC", "BIOMETRICS", "SET:SECURITY"}, {"WA", "WHATSAPP TASKS", "WHATSAPP"}, {"MIC", "DAAK DİKTE", "DICTATE"}, {"SCAN", "REFRESH", "REFRESH"}
             };
             float colW = (right - left - gap * 3f) / 4f, rowH = (bottom - top - gap) / 2f;
             for (int i = 0; i < tiles.length; i++) {
@@ -905,14 +938,14 @@ public final class MainActivity extends Activity {
             float left = dp(16), right = getWidth() - dp(16), top = dp(67), bottom = getHeight() - dp(58), gap = dp(8);
             float side = dp(190), listLeft = left + side + gap;
             RectF refresh = new RectF(left, top, left + side, bottom);
-            button(c, refresh, "SFTP", "LOLILE B:\\", diskState + " • TAP REFRESH", true, "DISK_REFRESH");
+            button(c, refresh, "SFTP", trimText(diskPath, 22), diskState + " • TAP REFRESH", true, "DISK_REFRESH");
             float colW = (right - listLeft - gap) / 2f, rowH = dp(42);
             if (diskItems.isEmpty()) { type(9, soft, false); c.drawText("Disk index loading...", listLeft, top + dp(28), paint); }
             else for (int i = 0; i < diskItems.size() && i < 12; i++) {
                 int row = i / 2, colIndex = i % 2; float x = listLeft + colIndex * (colW + gap), y = top + row * rowH;
                 if (y + rowH > bottom) break;
                 RectF r = new RectF(x, y, x + colW, y + rowH - dp(3)); box(c, r, 7, panel, line);
-                String item = diskItems.get(i); type(7, item.startsWith("[D]") ? mint : soft, item.startsWith("[D]")); c.drawText(trimText(item, 34), x + dp(9), y + dp(25), paint); addHit(r, "DISK_TERM");
+                String item = diskItems.get(i); type(7, item.startsWith("[D]") ? mint : soft, item.startsWith("[D]")); c.drawText(trimText(item, 34), x + dp(9), y + dp(25), paint); addHit(r, "DISK_ITEM:" + i);
             }
         }
 
@@ -948,10 +981,10 @@ public final class MainActivity extends Activity {
             type(17, mint, true); c.drawText("NODE CONTROL", left, dp(88), paint);
             type(7, soft, false); c.drawText("SYSTEM PANELS • SAFE LINKS", left, dp(106), paint);
             String[][] tiles = {
-                    {"VPN", "TAILSCALE", "PKG:com.tailscale.ipn"}, {"NET", "WI-FI", "SET:WIFI"},
-                    {"RADIO", "BLUETOOTH", "SET:BT"}, {"UI", "DISPLAY", "SET:DISPLAY"},
-                    {"SEC", "BIOMETRICS", "SET:SECURITY"}, {"ALERT", "NOTIFICATIONS", "SET:NOTIFY"},
-                    {"MAIL", "MAIL ACCESS", "SET:MAILACCESS"}, {"ROOT", "MAGISK", "PKG:com.topjohnwu.magisk"}
+                    {"VPN", "TAILSCALE", "PKG:com.tailscale.ipn"}, {"PC", "DAAK LOLILE", "LOLILE_HUB"},
+                    {"PIN", "PINNED APPS", "PINS"}, {"KEY", "KEYBOARD", "SET:INPUT"},
+                    {"SEC", "BIOMETRICS", "SET:SECURITY"}, {"WA", "WHATSAPP TASKS", "WHATSAPP"},
+                    {"MAIL", "MAIL ACCESS", "SET:MAILACCESS"}, {"MIC", "DAAK DİKTE", "DICTATE"}
             };
             float half = (right - left - gap) / 2f, top = dp(124), h = dp(71);
             for (int i = 0; i < tiles.length; i++) {
@@ -966,11 +999,14 @@ public final class MainActivity extends Activity {
 
         void drawDisk(Canvas c) {
             float left = dp(16), right = getWidth() - dp(16);
-            type(17, mint, true); c.drawText("LOLILE // B:\\", left, dp(88), paint);
+            type(17, mint, true); c.drawText("LOLILE // " + trimText(diskPath, 27), left, dp(88), paint);
             type(7, soft, false); c.drawText("TAILSCALE • ED25519 SFTP • " + diskState, left, dp(107), paint);
-            RectF refresh = new RectF(left, dp(120), right, dp(166));
-            button(c, refresh, "SFTP", "REFRESH DISK INDEX", "LOLILE • PRIVATE TAILNET", true, "DISK_REFRESH");
-            float y = dp(180);
+            float gap = dp(8), half = (right - left - gap) / 2f;
+            RectF back = new RectF(left, dp(120), left + half, dp(180));
+            RectF refresh = new RectF(left + half + gap, dp(120), right, dp(180));
+            button(c, back, "BACK", "UP ONE LEVEL", "NATIVE BROWSER", false, "DISK_UP");
+            button(c, refresh, "SFTP", "REFRESH", "PRIVATE TAILNET", true, "DISK_REFRESH");
+            float y = dp(194);
             if (diskItems.isEmpty()) {
                 type(9, soft, false); c.drawText("Disk index loading...", left, y + dp(24), paint);
             } else {
@@ -979,28 +1015,69 @@ public final class MainActivity extends Activity {
                     if (i % 2 == 0) { paint.setStyle(Paint.Style.FILL); paint.setColor(panel); c.drawRect(row, paint); }
                     String item = diskItems.get(i);
                     type(9, item.startsWith("[D]") ? mint : soft, item.startsWith("[D]"));
-                    c.drawText(item, left + dp(10), y + dp(27), paint); addHit(row, "DISK_TERM"); y += dp(46);
+                    c.drawText(item, left + dp(10), y + dp(27), paint); addHit(row, "DISK_ITEM:" + i); y += dp(46);
                 }
             }
-            type(7, ghost, false); c.drawText("Dosya açma/aktarma: terminal SFTP oturumunu kullan", left, getHeight() - dp(91), paint);
+            type(7, ghost, false); c.drawText("Klasöre dokun → gez • dosyaya dokun → güvenli SFTP", left, getHeight() - dp(91), paint);
         }
 
         void refreshDiskIndex() {
-            diskItems.clear(); message = "LOLILE INDEX REFRESHING"; invalidate();
-            runTermuxRaw("exec ~/.shortcuts/lolile-list", true, null);
-            postDelayed(new Runnable() {
-                @Override public void run() {
-                    File file = new File("/sdcard/Download/firat-lolile-list.txt");
-                    try {
-                        BufferedReader reader = new BufferedReader(new FileReader(file));
-                        String lineText;
-                        while ((lineText = reader.readLine()) != null) if (lineText.trim().length() > 0) diskItems.add(lineText);
-                        reader.close();
-                        message = "LOLILE INDEX READY";
-                    } catch (Exception error) { message = "LOLILE INDEX ERROR"; }
-                    invalidate();
+            message = "LOLILE INDEX REFRESHING"; invalidate();
+            String escaped = diskPath.replace("'", "''");
+            String ps = "$p='" + escaped + "';[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;" +
+                    "Write-Output ('[P] '+$p);Get-ChildItem -LiteralPath $p | Sort-Object @{Expression={-not $_.PSIsContainer}},Name | " +
+                    "ForEach-Object { if ($_.PSIsContainer) { '[D] ' + $_.Name } else { '[F] ' + $_.Name } }";
+            String encoded = Base64.encodeToString(ps.getBytes(Charset.forName("UTF-16LE")), Base64.NO_WRAP);
+            runTermuxRaw("ssh lolile powershell.exe -NoProfile -EncodedCommand " + encoded +
+                    " > /sdcard/Download/daak-lolile-list.txt", true, null);
+            postDelayed(() -> loadDiskIndex(0), 2500L);
+        }
+
+        void loadDiskIndex(final int attempt) {
+            File file = new File("/sdcard/Download/daak-lolile-list.txt");
+            final ArrayList<String> loaded = new ArrayList<String>();
+            String loadedPath = null;
+            try {
+                BufferedReader reader = new BufferedReader(new FileReader(file));
+                String lineText;
+                while ((lineText = reader.readLine()) != null) {
+                    if (lineText.startsWith("[P] ")) loadedPath = lineText.substring(4).trim();
+                    else if (lineText.trim().length() > 0) loaded.add(lineText.trim());
                 }
-            }, 4500L);
+                reader.close();
+                if (loadedPath != null) diskPath = loadedPath.equalsIgnoreCase("B:") ? "B:\\" : loadedPath;
+                if (!loaded.isEmpty()) {
+                    diskItems.clear(); diskItems.addAll(loaded); message = "LOLILE INDEX READY"; invalidate(); return;
+                }
+            } catch (Exception error) {
+                if (attempt >= 3) message = "LOLILE INDEX ERROR // " + error.getClass().getSimpleName();
+            }
+            if (attempt < 3) postDelayed(() -> loadDiskIndex(attempt + 1), 2500L);
+            else { message = "LOLILE FOLDER EMPTY OR OFFLINE"; diskItems.clear(); invalidate(); }
+        }
+
+        void openDiskItem(int index) {
+            if (index < 0 || index >= diskItems.size()) return;
+            String item = diskItems.get(index);
+            String name = item.length() > 4 ? item.substring(4) : "";
+            if (item.startsWith("[D] ")) {
+                if (!diskPath.endsWith("\\")) diskPath += "\\";
+                diskPath += name;
+                refreshDiskIndex();
+            } else openDiskTerminal();
+        }
+
+        void diskUp() {
+            String current = diskPath;
+            while (current.endsWith("\\") && current.length() > 3) current = current.substring(0, current.length() - 1);
+            int slash = current.lastIndexOf('\\');
+            diskPath = slash < 2 ? "B:\\" : current.substring(0, slash);
+            refreshDiskIndex();
+        }
+
+        void openDiskTerminal() {
+            String encoded = Base64.encodeToString(diskPath.getBytes(Charset.forName("UTF-8")), Base64.NO_WRAP);
+            runTermux("exec ~/.shortcuts/lolile-disk " + encoded, "LOLILE SFTP");
         }
 
         void drawDock(Canvas c) {
@@ -1046,13 +1123,91 @@ public final class MainActivity extends Activity {
             dialog.show();
         }
 
+        void showPinnedManager() {
+            final String[] slots = new String[4];
+            for (int i = 0; i < 4; i++) slots[i] = (i + 1) + " • " + pinnedApp(i).label;
+            new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("DAAK NODE // PINNED APPS")
+                    .setMessage("Değiştirmek istediğin yuvayı seç.")
+                    .setItems(slots, (dialog, which) -> choosePinnedApp(which))
+                    .setNegativeButton("KAPAT", null).show();
+        }
+
+        void choosePinnedApp(final int slot) {
+            final String[] labels = new String[allApps.size()];
+            for (int i = 0; i < allApps.size(); i++) labels[i] = allApps.get(i).label;
+            new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("PIN " + (slot + 1) + " // APP SELECT")
+                    .setItems(labels, (dialog, which) -> {
+                        getSharedPreferences(NodeStore.PREFS, 0).edit()
+                                .putString("pinned_" + slot, allApps.get(which).packageName).apply();
+                        message = "PIN " + (slot + 1) + " // " + allApps.get(which).label.toUpperCase(Locale.getDefault());
+                        invalidate();
+                    })
+                    .setNegativeButton("İPTAL", null).show();
+        }
+
+        void showWhatsAppPanel() {
+            List<String> rows = NodeStore.recentWhatsAppTasks(MainActivity.this, 8);
+            StringBuilder body = new StringBuilder(NodeStore.whatsAppAutomationEnabled(MainActivity.this)
+                    ? "AUTO TASKS // ON\n\n" : "AUTO TASKS // OFF\n\n");
+            if (rows.isEmpty()) body.append("Henüz görev niteliğinde WhatsApp bildirimi yok.");
+            else for (String row : rows) body.append("• ").append(row).append("\n\n");
+            new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("WHATSAPP → daakREMEMBER")
+                    .setMessage(body.toString())
+                    .setPositiveButton("WHATSAPP", (d, which) -> launchPackage("com.whatsapp"))
+                    .setNeutralButton("AYAR", (d, which) -> showWhatsAppSettings())
+                    .setNegativeButton("KAPAT", null).show();
+        }
+
+        void showWhatsAppSettings() {
+            SharedPreferences prefs = getSharedPreferences(NodeStore.PREFS, 0);
+            final EditText input = new EditText(MainActivity.this);
+            input.setSingleLine(false); input.setMinLines(2);
+            input.setHint("Yok sayılacak kişi/grup adları, virgülle");
+            input.setText(prefs.getString("ignored_whatsapp_senders", ""));
+            boolean enabled = NodeStore.whatsAppAutomationEnabled(MainActivity.this);
+            new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("AUTO TASKS // " + (enabled ? "ON" : "OFF"))
+                    .setMessage("Yalnız görev belirten bildirimler alınır; mesaj gönderilmez.")
+                    .setView(input)
+                    .setPositiveButton("KAYDET", (d, which) -> prefs.edit()
+                            .putString("ignored_whatsapp_senders", input.getText().toString()).apply())
+                    .setNeutralButton(enabled ? "KAPAT" : "AÇ", (d, which) -> prefs.edit()
+                            .putBoolean("whatsapp_tasks_enabled", !enabled).apply())
+                    .setNegativeButton("İPTAL", null).show();
+        }
+
+        void showDictationResult(String result) {
+            final EditText input = new EditText(MainActivity.this);
+            input.setSingleLine(false); input.setMinLines(3); input.setText(result); input.setSelection(result.length());
+            new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("DAAK DİKTE // RESULT")
+                    .setView(input)
+                    .setPositiveButton("REMEMBER'A EKLE", (d, which) -> addRememberNote(input.getText().toString()))
+                    .setNeutralButton("PAYLAŞ", (d, which) -> {
+                        Intent share = new Intent(Intent.ACTION_SEND).setType("text/plain")
+                                .putExtra(Intent.EXTRA_TEXT, input.getText().toString());
+                        startActivity(Intent.createChooser(share, "Dikte metnini paylaş"));
+                    })
+                    .setNegativeButton("İPTAL", null).show();
+        }
+
+        void launchLolileHub() {
+            try {
+                String host = nodeConfig("lolile_host", "lolile");
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("http://" + host + ":17657/")));
+            } catch (RuntimeException error) { toast("daakLOLILE paneli açılamadı"); }
+        }
+
         void showMailPanel() {
             List<String> rows = NodeStore.recentMail(MainActivity.this, System.currentTimeMillis() - 24L * 60L * 60L * 1000L, 8);
             StringBuilder body = new StringBuilder("READ ONLY // Son 24 saat\n\n");
-            if (rows.isEmpty()) body.append("Yeni mailin yok, rahat ol.\n\nThunderbird hesabını ve FIRAT NODE bildirim erişimini bağlaman gerekebilir.");
+            if (rows.isEmpty()) body.append("Yeni mailin yok, rahat ol.\n\nThunderbird hesabını ve DAAK NODE bildirim erişimini bağlaman gerekebilir.");
             else for (String row : rows) body.append("• ").append(row).append("\n\n");
             AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("FIRAT NODE // MAIL")
+                    .setTitle("DAAK NODE // MAIL")
                     .setMessage(body.toString())
                     .setPositiveButton("THUNDERBIRD", (d, which) -> launchPackage("net.thunderbird.android"))
                     .setNeutralButton("FİLTRE", (d, which) -> showMailFilters())
@@ -1073,7 +1228,7 @@ public final class MainActivity extends Activity {
             input.setText(prefs.getString("ignored_senders", "spam,junk,newsletter,unsubscribe,no-reply,noreply"));
             input.setSingleLine(false); input.setMinLines(3);
             new AlertDialog.Builder(MainActivity.this).setTitle("Gizlenecek gönderen/kelimeler")
-                    .setMessage("Virgülle ayır. Eşleşen mail FIRAT özetine alınmaz.")
+                    .setMessage("Virgülle ayır. Eşleşen mail DAAK özetine alınmaz.")
                     .setView(input)
                     .setPositiveButton("KAYDET", (d, which) -> prefs.edit().putString("ignored_senders", input.getText().toString()).apply())
                     .setNegativeButton("İPTAL", null).show();
@@ -1121,7 +1276,8 @@ public final class MainActivity extends Activity {
 
         void launchObsidian() {
             try {
-                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("obsidian://open?vault=FIRAT-Vault"));
+                Intent intent = new Intent(Intent.ACTION_VIEW,
+                        Uri.parse("obsidian://open?vault=DAAK-Vault&file=daakREMEMBER.md"));
                 intent.setPackage("md.obsidian"); startActivity(intent);
             } catch (RuntimeException error) { launchPackage("md.obsidian"); }
         }
@@ -1143,6 +1299,7 @@ public final class MainActivity extends Activity {
                 return true;
             }
             if (event.getAction() != MotionEvent.ACTION_UP) return true;
+            if (downX > getWidth() - dp(24) && downX - x > dp(65)) { showMode(CONTROL); return true; }
             if (downY < dp(58) && y - downY > dp(55)) { showMode(CONTROL); return true; }
             if (moved) return true;
             performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
@@ -1167,13 +1324,19 @@ public final class MainActivity extends Activity {
             else if (a.equals("REMEMBER")) showRememberPanel();
             else if (a.equals("OBSIDIAN")) launchObsidian();
             else if (a.equals("WEATHER")) showWeatherSetup();
+            else if (a.equals("PINS")) showPinnedManager();
+            else if (a.equals("WHATSAPP")) showWhatsAppPanel();
+            else if (a.equals("LOLILE_HUB")) guarded(() -> launchLolileHub());
+            else if (a.equals("DICTATE")) startDictation();
             else if (a.equals("CALENDAR")) {
                 if (checkSelfPermission("android.permission.READ_CALENDAR") != PackageManager.PERMISSION_GRANTED)
                     requestPermissions(new String[]{"android.permission.READ_CALENDAR"}, CALENDAR_PERMISSION_REQUEST);
                 else launchPackage("org.fossify.calendar");
             }
             else if (a.equals("DISK_REFRESH")) refreshDiskIndex();
-            else if (a.equals("DISK_TERM")) runTermux("exec ~/.shortcuts/lolile-disk", "LOLILE SFTP");
+            else if (a.equals("DISK_UP")) diskUp();
+            else if (a.startsWith("DISK_ITEM:")) openDiskItem(Integer.parseInt(a.substring(10)));
+            else if (a.equals("DISK_TERM")) openDiskTerminal();
             else if (a.equals("CODEX")) guarded(() -> runTermux("exec ~/.shortcuts/codex", "CODEX CLI"));
             else if (a.equals("MAC")) guarded(() -> runTermux("exec ~/.shortcuts/mac", "MAC SSH"));
             else if (a.equals("LOCAL")) guarded(() -> runTermux("exec ~/.shortcuts/debian", "DEBIAN"));
@@ -1184,6 +1347,7 @@ public final class MainActivity extends Activity {
             else if (a.equals("SET:WIFI")) openSettings(Settings.ACTION_WIFI_SETTINGS);
             else if (a.equals("SET:BT")) openSettings(Settings.ACTION_BLUETOOTH_SETTINGS);
             else if (a.equals("SET:DISPLAY")) openSettings(Settings.ACTION_DISPLAY_SETTINGS);
+            else if (a.equals("SET:INPUT")) openSettings(Settings.ACTION_INPUT_METHOD_SETTINGS);
             else if (a.equals("SET:NOTIFY")) openSettings("android.settings.NOTIFICATION_SETTINGS");
             else if (a.equals("SET:MAILACCESS")) openSettings(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
         }

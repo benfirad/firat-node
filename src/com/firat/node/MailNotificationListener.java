@@ -9,7 +9,7 @@ public final class MailNotificationListener extends NotificationListenerService 
     @Override public void onNotificationPosted(StatusBarNotification sbn) {
         if (sbn == null) return;
         String pkg = sbn.getPackageName();
-        if (pkg == null || !(pkg.contains("thunderbird") || pkg.contains("k9mail"))) return;
+        if (pkg == null) return;
         Notification notification = sbn.getNotification();
         if (notification == null) return;
         if ((notification.flags & Notification.FLAG_GROUP_SUMMARY) != 0) return;
@@ -17,9 +17,19 @@ public final class MailNotificationListener extends NotificationListenerService 
         if (extras == null) return;
         CharSequence title = extras.getCharSequence(Notification.EXTRA_TITLE);
         CharSequence text = extras.getCharSequence(Notification.EXTRA_TEXT);
-        NodeStore.addMail(this, title == null ? "Mail" : title.toString(), text == null ? "New message" : text.toString(), sbn.getPostTime());
-        NodeStore.schedule(this);
+        if (pkg.contains("thunderbird") || pkg.contains("k9mail")) {
+            NodeStore.addMail(this, title == null ? "Mail" : title.toString(), text == null ? "New message" : text.toString(), sbn.getPostTime());
+            NodeStore.schedule(this);
+        } else if (pkg.equals("com.whatsapp")) {
+            String task = NodeStore.addWhatsAppTask(this,
+                    title == null ? "WhatsApp" : title.toString(),
+                    text == null ? "" : text.toString(), sbn.getPostTime());
+            if (task != null) RememberBridge.pushOrQueue(getApplicationContext(), task);
+        }
     }
 
-    @Override public void onListenerConnected() { NodeStore.schedule(this); }
+    @Override public void onListenerConnected() {
+        NodeStore.schedule(this);
+        RememberBridge.flushPending(getApplicationContext());
+    }
 }
