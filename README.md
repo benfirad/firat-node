@@ -5,6 +5,7 @@ FIRAT NODE is a true-black, Linux-flavoured Android launcher and private control
 ## Highlights
 
 - OLED-black launcher with pixel shifting and an immersive, gesture-friendly dock
+- Dedicated three-column landscape control plane and adaptive landscape app/help/disk screens
 - Text-first app drawer, searchable launcher and built-in help/control screens
 - Biometric/device-credential vault for Codex, SSH and Debian actions
 - Direct Codex CLI control over Termux + SSH (no API integration in the launcher)
@@ -15,6 +16,8 @@ FIRAT NODE is a true-black, Linux-flavoured Android launcher and private control
 - Open-Meteo current weather using coarse device location
 - Adaptive 2/3/5-minute Lolie reconnect backoff
 - Ten-minute expiry for mail metadata viewed inside the launcher
+- Native Tailnet integration with daakREMEMBER for reading and quick-capturing notes
+- Obsidian deep link into a local `FIRAT-Vault`
 
 ## Security model
 
@@ -27,6 +30,8 @@ FIRAT NODE contains no SSH keys, passwords, OAuth tokens, Tailnet addresses or h
 Copy `config.properties.example` to that path and edit it locally. Keep remote services bound to Tailscale, use key-only SSH, and do not expose Termux SSH directly to the public internet.
 
 Mail access is metadata-only through Android's notification listener: sender, subject and timestamp. Sending mail or creating calendar events is intentionally outside the automation path and should require explicit user action.
+
+daakREMEMBER traffic uses its existing HTTP snapshot/merge protocol on TCP 45831. The companion Mac service rejects non-Tailnet source addresses; Tailscale supplies the encrypted transport. FIRAT NODE does not expose a new listening port.
 
 ## Build
 
@@ -46,6 +51,8 @@ The build uses only Android SDK command-line tools. The generated APK is debug-s
 - [Thunderbird for Android](https://github.com/thunderbird/thunderbird-android)
 - [Fossify Calendar](https://github.com/FossifyOrg/Calendar)
 - [Material Files](https://github.com/zhanghai/MaterialFiles)
+- [daakREMEMBER](https://github.com/benfirad/daakREMEMBER)
+- [Obsidian](https://github.com/obsidianmd/obsidian-releases)
 
 ## Platform note
 

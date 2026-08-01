@@ -42,6 +42,7 @@ import java.io.File;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.HttpURLConnection;
 import java.net.NetworkInterface;
@@ -56,7 +57,9 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.Properties;
+import java.util.UUID;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 public final class MainActivity extends Activity {
@@ -65,6 +68,7 @@ public final class MainActivity extends Activity {
     private static final int LOCATION_PERMISSION_REQUEST = 75;
     private NodeView nodeView;
     private Runnable pendingProtectedAction;
+    private CancellationSignal biometricCancellation;
     private long vaultUnlockedUntil;
 
     @Override protected void onCreate(Bundle state) {
@@ -90,8 +94,23 @@ public final class MainActivity extends Activity {
         hideSystemBars();
         if (nodeView != null) {
             nodeView.reloadApps();
-            nodeView.refreshStatus();
+            nodeView.startUpdates();
         }
+    }
+
+    @Override protected void onPause() {
+        if (nodeView != null) nodeView.pauseUpdates();
+        super.onPause();
+    }
+
+    @Override protected void onDestroy() {
+        pendingProtectedAction = null;
+        if (biometricCancellation != null) {
+            biometricCancellation.cancel();
+            biometricCancellation = null;
+        }
+        if (nodeView != null) nodeView.shutdown();
+        super.onDestroy();
     }
 
     @Override public void onWindowFocusChanged(boolean hasFocus) {
@@ -159,13 +178,17 @@ public final class MainActivity extends Activity {
 
     private void authenticate() {
         try {
+            if (biometricCancellation != null) biometricCancellation.cancel();
+            biometricCancellation = new CancellationSignal();
             BiometricPrompt prompt = new BiometricPrompt.Builder(this)
                     .setTitle("FIRAT NODE // CONTROL VAULT")
                     .setSubtitle("Parmak izi, iris veya cihaz kilidi")
                     .setDeviceCredentialAllowed(true).build();
-            prompt.authenticate(new CancellationSignal(), getMainExecutor(),
+            prompt.authenticate(biometricCancellation, getMainExecutor(),
                     new BiometricPrompt.AuthenticationCallback() {
                 @Override public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
+                    biometricCancellation = null;
+                    if (nodeView == null || isFinishing() || isDestroyed()) return;
                     vaultUnlockedUntil = System.currentTimeMillis() + 90_000L;
                     nodeView.vaultUnlocked = true;
                     nodeView.message = "VAULT OPEN // 90 SEC";
@@ -175,12 +198,16 @@ public final class MainActivity extends Activity {
                     if (action != null) action.run();
                 }
                 @Override public void onAuthenticationError(int code, CharSequence error) {
+                    biometricCancellation = null;
                     pendingProtectedAction = null;
+                    if (nodeView == null || isFinishing() || isDestroyed()) return;
                     nodeView.message = "VAULT LOCKED // SET PIN OR BIOMETRICS";
                     nodeView.invalidate();
                 }
             });
         } catch (Exception error) {
+            biometricCancellation = null;
+            if (nodeView == null || isFinishing() || isDestroyed()) return;
             nodeView.message = "BIOMETRIC SETUP REQUIRED";
             nodeView.invalidate();
             openSettings(Settings.ACTION_SECURITY_SETTINGS);
@@ -216,7 +243,7 @@ public final class MainActivity extends Activity {
                 nodeView.message = "TERMUX ERROR";
                 nodeView.invalidate();
             }
-            launchPackage("com.termux");
+            if (!background) launchPackage("com.termux");
         }
     }
 
@@ -227,23 +254,35 @@ public final class MainActivity extends Activity {
             return;
         }
         try { startActivity(intent); }
-        catch (ActivityNotFoundException error) { toast("Uygulama açılamadı"); }
+        catch (RuntimeException error) { toast("Uygulama açılamadı"); }
     }
 
     private void openSettings(String action) {
         try { startActivity(new Intent(action)); }
-        catch (ActivityNotFoundException error) { startActivity(new Intent(Settings.ACTION_SETTINGS)); }
+        catch (RuntimeException error) {
+            try { startActivity(new Intent(Settings.ACTION_SETTINGS)); }
+            catch (RuntimeException ignored) { toast("Ayar ekranı açılamadı"); }
+        }
     }
 
     private void toast(String text) { Toast.makeText(this, text, Toast.LENGTH_SHORT).show(); }
 
     private String nodeConfig(String key, String fallback) {
-        File file = new File("/sdcard/Download/firat-node/config.properties");
-        Properties props = new Properties();
-        try {
-            FileReader reader = new FileReader(file); props.load(reader); reader.close();
-            return props.getProperty(key, fallback).trim();
-        } catch (Exception ignored) { return fallback; }
+        File[] candidates = {
+                new File(getFilesDir(), "config.properties"),
+                new File("/sdcard/Download/firat-node/config.properties")
+        };
+        for (File file : candidates) {
+            Properties props = new Properties();
+            try {
+                FileReader reader = new FileReader(file);
+                props.load(reader);
+                reader.close();
+                String value = props.getProperty(key);
+                if (value != null && value.trim().length() > 0) return value.trim();
+            } catch (Exception ignored) { }
+        }
+        return fallback;
     }
 
     private static final class AppEntry {
@@ -276,6 +315,7 @@ public final class MainActivity extends Activity {
         final List<AppEntry> allApps = new ArrayList<AppEntry>();
         final List<AppEntry> shownApps = new ArrayList<AppEntry>();
         final List<String> diskItems = new ArrayList<String>();
+        final List<String> rememberItems = new ArrayList<String>();
         int mode = HOME;
         String query = "";
         String meshIp = "CHECKING", macState = "CHECKING", diskState = "CHECKING";
@@ -283,27 +323,62 @@ public final class MainActivity extends Activity {
         String weather = "TAP TO ENABLE", agendaOne = "Calendar permission required", agendaTwo = "";
         String mailLine = "Connect Thunderbird + notification access";
         String weatherCity = "";
+        String rememberLine = "SYNCING WITH MAC...";
+        int rememberOpenCount;
         boolean rooted, vaultUnlocked;
         float drawerScroll, downX, downY, lastY;
         boolean moved;
         float burnX, burnY;
         long lastWeatherRefresh, nextDiskRetry;
         int diskRetryStep;
+        boolean active, destroyed, statusRefreshRunning;
+        LocationManager pendingLocationManager;
+        LocationListener pendingLocationListener;
+        final Runnable statusTicker = new Runnable() {
+            @Override public void run() {
+                if (!active || destroyed) return;
+                refreshStatus();
+                refreshRemember();
+                handler.postDelayed(this, 60_000L);
+            }
+        };
 
         NodeView(Context context) {
             super(context);
             setBackgroundColor(Color.BLACK);
             reloadApps();
-            refreshStatus();
             refreshCalendar();
             refreshWeather(false);
-            handler.postDelayed(new Runnable() {
-                @Override public void run() {
-                    refreshStatus();
-                    invalidate();
-                    handler.postDelayed(this, 60_000L);
-                }
-            }, 60_000L);
+        }
+
+        void startUpdates() {
+            if (destroyed) return;
+            active = true;
+            handler.removeCallbacks(statusTicker);
+            refreshStatus();
+            refreshRemember();
+            handler.postDelayed(statusTicker, 60_000L);
+        }
+
+        void pauseUpdates() {
+            active = false;
+            handler.removeCallbacks(statusTicker);
+        }
+
+        void shutdown() {
+            destroyed = true;
+            active = false;
+            handler.removeCallbacksAndMessages(null);
+            clearPendingLocationRequest();
+        }
+
+        void clearPendingLocationRequest() {
+            if (pendingLocationManager != null && pendingLocationListener != null) {
+                try { pendingLocationManager.removeUpdates(pendingLocationListener); }
+                catch (RuntimeException ignored) { }
+            }
+            pendingLocationManager = null;
+            pendingLocationListener = null;
         }
 
         void reloadApps() {
@@ -311,6 +386,7 @@ public final class MainActivity extends Activity {
             Intent intent = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
             List<ResolveInfo> infos = getPackageManager().queryIntentActivities(intent, 0);
             for (ResolveInfo info : infos) {
+                if (info.activityInfo == null) continue;
                 String pkg = info.activityInfo.packageName;
                 if (pkg.equals(getPackageName())) continue;
                 allApps.add(new AppEntry(String.valueOf(info.loadLabel(getPackageManager())), pkg));
@@ -341,6 +417,8 @@ public final class MainActivity extends Activity {
         }
 
         void refreshStatus() {
+            if (destroyed || statusRefreshRunning) return;
+            statusRefreshRunning = true;
             long phase = (System.currentTimeMillis() / 60_000L) % 9L;
             burnX = dp((phase % 3L) - 1L);
             burnY = dp((phase / 3L) - 1L);
@@ -352,6 +430,8 @@ public final class MainActivity extends Activity {
                     final String ssh = canConnect("127.0.0.1", 8022) ? "READY" : "STOPPED";
                     handler.post(new Runnable() {
                         @Override public void run() {
+                            statusRefreshRunning = false;
+                            if (destroyed) return;
                             meshIp = ip; macState = mac; diskState = disk; sshState = ssh;
                             rooted = new File("/sbin/su").exists() || new File("/system/bin/su").exists();
                             if (System.currentTimeMillis() >= vaultUnlockedUntil) vaultUnlocked = false;
@@ -367,6 +447,8 @@ public final class MainActivity extends Activity {
 
         void scheduleDiskRetry() {
             if (meshIp.equals("OFFLINE")) return;
+            if (checkSelfPermission("com.termux.permission.RUN_COMMAND") != PackageManager.PERMISSION_GRANTED) return;
+            if (getPackageManager().getLaunchIntentForPackage("com.termux") == null) return;
             long now = System.currentTimeMillis();
             if (now < nextDiskRetry) return;
             int[] minutes = {2, 3, 5};
@@ -379,6 +461,81 @@ public final class MainActivity extends Activity {
         void updateMailLine() {
             List<String> rows = NodeStore.recentMail(MainActivity.this, System.currentTimeMillis() - 24L * 60L * 60L * 1000L, 1);
             mailLine = rows.isEmpty() ? "Yeni mail yok • rahat ol" : rows.get(0);
+        }
+
+        byte[] rememberRequest(String method, String path, byte[] body) throws Exception {
+            String host = nodeConfig("remember_host", nodeConfig("mac_host", "mac"));
+            URL url = new URL("http://" + host + ":45831" + path);
+            HttpURLConnection connection = (HttpURLConnection)url.openConnection();
+            try {
+                connection.setRequestMethod(method);
+                connection.setConnectTimeout(3500);
+                connection.setReadTimeout(4500);
+                connection.setRequestProperty("Content-Type", "application/json");
+                if (body != null && body.length > 0) {
+                    connection.setDoOutput(true);
+                    connection.setFixedLengthStreamingMode(body.length);
+                    OutputStream output = connection.getOutputStream();
+                    output.write(body); output.close();
+                }
+                int status = connection.getResponseCode();
+                if (status < 200 || status >= 300) throw new IllegalStateException("HTTP " + status);
+                InputStream input = connection.getInputStream();
+                byte[] buffer = new byte[4096]; int count; java.io.ByteArrayOutputStream data = new java.io.ByteArrayOutputStream();
+                while ((count = input.read(buffer)) > 0) data.write(buffer, 0, count);
+                input.close(); return data.toByteArray();
+            } finally { connection.disconnect(); }
+        }
+
+        void refreshRemember() {
+            new Thread(() -> {
+                try {
+                    JSONObject snapshot = new JSONObject(new String(rememberRequest("GET", "/snapshot", null), "UTF-8"));
+                    JSONArray items = snapshot.optJSONArray("items");
+                    final ArrayList<String> activeItems = new ArrayList<String>();
+                    int open = 0;
+                    if (items != null) for (int i = 0; i < items.length(); i++) {
+                        JSONObject item = items.optJSONObject(i);
+                        if (item == null || !item.isNull("deletedAt")) continue;
+                        String text = item.optString("text", "").trim();
+                        if (!item.optBoolean("isDone", false)) open++;
+                        if (text.length() > 0 && activeItems.size() < 12)
+                            activeItems.add((item.optBoolean("isDone", false) ? "✓ " : "• ") + text);
+                    }
+                    final int openFinal = open;
+                    handler.post(() -> {
+                        if (destroyed) return;
+                        rememberItems.clear(); rememberItems.addAll(activeItems); rememberOpenCount = openFinal;
+                        rememberLine = activeItems.isEmpty() ? "NOT YOK • TAP TO CAPTURE" : openFinal + " OPEN • " + activeItems.get(0).substring(2);
+                        invalidate();
+                    });
+                } catch (Exception error) {
+                    handler.post(() -> { if (!destroyed) { rememberLine = "MAC SYNC OFFLINE"; invalidate(); } });
+                }
+            }, "node-remember-read").start();
+        }
+
+        void addRememberNote(final String rawText) {
+            final String text = rawText.trim();
+            if (text.length() == 0) return;
+            message = "REMEMBER // SENDING"; invalidate();
+            new Thread(() -> {
+                try {
+                    JSONObject snapshot = new JSONObject(new String(rememberRequest("GET", "/snapshot", null), "UTF-8"));
+                    JSONArray items = snapshot.optJSONArray("items");
+                    if (items == null) items = new JSONArray();
+                    double appleTime = System.currentTimeMillis() / 1000.0 - 978307200.0;
+                    JSONObject note = new JSONObject();
+                    note.put("id", UUID.randomUUID().toString().toUpperCase(Locale.US));
+                    note.put("text", text); note.put("createdAt", appleTime); note.put("updatedAt", appleTime);
+                    note.put("isDone", false); note.put("deletedAt", JSONObject.NULL); items.put(note);
+                    JSONObject envelope = new JSONObject(); envelope.put("deviceName", "FIRAT NODE"); envelope.put("items", items);
+                    rememberRequest("POST", "/merge", envelope.toString().getBytes("UTF-8"));
+                    handler.post(() -> { if (!destroyed) { message = "REMEMBER // SYNCED"; refreshRemember(); } });
+                } catch (Exception error) {
+                    handler.post(() -> { if (!destroyed) { message = "REMEMBER // MAC OFFLINE"; invalidate(); } });
+                }
+            }, "node-remember-write").start();
         }
 
         void refreshCalendar() {
@@ -401,7 +558,10 @@ public final class MainActivity extends Activity {
                 finally { if (cursor != null) cursor.close(); }
                 final String one = rows.size() > 0 ? rows.get(0) : "Yaklaşan etkinlik yok";
                 final String two = rows.size() > 1 ? rows.get(1) : "";
-                handler.post(() -> { agendaOne = one; agendaTwo = two; invalidate(); });
+                handler.post(() -> {
+                    if (destroyed) return;
+                    agendaOne = one; agendaTwo = two; invalidate();
+                });
             }, "node-calendar").start();
         }
 
@@ -413,21 +573,37 @@ public final class MainActivity extends Activity {
                 weather = "TAP FOR LOCATION"; invalidate(); return;
             }
             LocationManager manager = (LocationManager)getSystemService(LOCATION_SERVICE);
+            if (manager == null) {
+                weather = "LOCATION UNAVAILABLE"; invalidate(); return;
+            }
             Location location = null;
             try {
                 location = manager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
                 if (location == null) location = manager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
-            } catch (SecurityException ignored) { }
+            } catch (RuntimeException ignored) { }
             if (location == null) {
                 weather = "LOCATING..."; invalidate();
                 try {
-                    manager.requestSingleUpdate(LocationManager.NETWORK_PROVIDER, new LocationListener() {
-                        @Override public void onLocationChanged(Location fresh) { fetchWeather(fresh); }
+                    clearPendingLocationRequest();
+                    pendingLocationManager = manager;
+                    pendingLocationListener = new LocationListener() {
+                        @Override public void onLocationChanged(Location fresh) {
+                            clearPendingLocationRequest();
+                            if (!destroyed) fetchWeather(fresh);
+                        }
                         @Override public void onStatusChanged(String provider, int status, Bundle extras) { }
                         @Override public void onProviderEnabled(String provider) { }
-                        @Override public void onProviderDisabled(String provider) { weather = "LOCATION DISABLED"; invalidate(); }
-                    }, Looper.getMainLooper());
-                } catch (Exception error) { weather = "LOCATION DISABLED"; invalidate(); }
+                        @Override public void onProviderDisabled(String provider) {
+                            clearPendingLocationRequest();
+                            if (!destroyed) { weather = "LOCATION DISABLED"; invalidate(); }
+                        }
+                    };
+                    manager.requestSingleUpdate(LocationManager.NETWORK_PROVIDER,
+                            pendingLocationListener, Looper.getMainLooper());
+                } catch (RuntimeException error) {
+                    clearPendingLocationRequest();
+                    weather = "LOCATION DISABLED"; invalidate();
+                }
                 return;
             }
             fetchWeather(location);
@@ -445,8 +621,12 @@ public final class MainActivity extends Activity {
                     JSONObject current = new JSONObject(json.toString()).getJSONObject("current");
                     final String prefix = weatherCity.length() == 0 ? "" : weatherCity.toUpperCase(Locale.getDefault()) + " • ";
                     final String value = prefix + Math.round(current.getDouble("temperature_2m")) + "°C • feels " + Math.round(current.getDouble("apparent_temperature")) + "° • " + weatherCode(current.getInt("weather_code"));
-                    lastWeatherRefresh = System.currentTimeMillis(); handler.post(() -> { weather = value; invalidate(); });
-                } catch (Exception error) { handler.post(() -> { weather = "WEATHER OFFLINE"; invalidate(); }); }
+                    lastWeatherRefresh = System.currentTimeMillis(); handler.post(() -> {
+                        if (!destroyed) { weather = value; invalidate(); }
+                    });
+                } catch (Exception error) { handler.post(() -> {
+                    if (!destroyed) { weather = "WEATHER OFFLINE"; invalidate(); }
+                }); }
                 finally { if (connection != null) connection.disconnect(); }
             }, "node-weather").start();
         }
@@ -463,7 +643,9 @@ public final class MainActivity extends Activity {
                     JSONObject result = new JSONObject(json.toString()).getJSONArray("results").getJSONObject(0);
                     Location location = new Location("city"); location.setLatitude(result.getDouble("latitude")); location.setLongitude(result.getDouble("longitude"));
                     weatherCity = result.optString("name", city); fetchWeather(location);
-                } catch (Exception error) { handler.post(() -> { weather = "CITY NOT FOUND"; invalidate(); }); }
+                } catch (Exception error) { handler.post(() -> {
+                    if (!destroyed) { weather = "CITY NOT FOUND"; invalidate(); }
+                }); }
                 finally { if (connection != null) connection.disconnect(); }
             }, "node-weather-city").start();
         }
@@ -485,7 +667,7 @@ public final class MainActivity extends Activity {
 
         boolean canConnect(String host, int port) {
             Socket socket = new Socket();
-            try { socket.connect(new InetSocketAddress(host, port), 900); return true; }
+            try { socket.connect(new InetSocketAddress(host, port), 2500); return true; }
             catch (Exception ignored) { return false; }
             finally { try { socket.close(); } catch (Exception ignored) { } }
         }
@@ -526,12 +708,21 @@ public final class MainActivity extends Activity {
             super.onDraw(c); c.drawColor(Color.BLACK); hits.clear();
             c.save(); c.translate(burnX, burnY);
             drawTopBar(c);
-            if (mode == HOME) drawHome(c);
-            else if (mode == APPS) drawApps(c);
-            else if (mode == HELP) drawHelp(c);
-            else if (mode == CONTROL) drawControl(c);
-            else drawDisk(c);
-            drawDock(c);
+            if (getWidth() > getHeight()) {
+                if (mode == HOME) drawHomeLandscape(c);
+                else if (mode == APPS) drawAppsLandscape(c);
+                else if (mode == HELP) drawHelpLandscape(c);
+                else if (mode == CONTROL) drawControlLandscape(c);
+                else drawDiskLandscape(c);
+                drawDockLandscape(c);
+            } else {
+                if (mode == HOME) drawHome(c);
+                else if (mode == APPS) drawApps(c);
+                else if (mode == HELP) drawHelp(c);
+                else if (mode == CONTROL) drawControl(c);
+                else drawDisk(c);
+                drawDock(c);
+            }
             c.restore();
         }
 
@@ -583,16 +774,60 @@ public final class MainActivity extends Activity {
             type(6.2f, ghost, false); c.drawText(trimText(agendaTwo, 52), agenda.left + dp(10), dp(506), paint); addHit(agenda, "CALENDAR");
 
             type(7, mintDim, true); c.drawText("// PINNED", left, dp(535), paint);
-            String[] names = {"AUXIO", "CAMERA", "FILM", "TOOLBOX"};
-            String[] pkgs = {"org.oxycblt.auxio", "com.sec.android.app.camera",
-                    "io.github.yahiaangelo.filmsimulator.android", "ru.tech.imageresizershrinker"};
-            float cardW = (right - left - gap * 3f) / 4f;
-            for (int i = 0; i < 4; i++) {
+            String[] names = {"AUXIO", "CAMERA", "FILM", "TOOLBOX", "REMEM", "OBSID"};
+            String[] actions = {"PKG:org.oxycblt.auxio", "PKG:com.sec.android.app.camera",
+                    "PKG:io.github.yahiaangelo.filmsimulator.android", "PKG:ru.tech.imageresizershrinker", "REMEMBER", "OBSIDIAN"};
+            float cardW = (right - left - gap * 5f) / 6f;
+            for (int i = 0; i < 6; i++) {
                 RectF r = new RectF(left + i * (cardW + gap), dp(545), left + i * (cardW + gap) + cardW, dp(594));
-                box(c, r, 12, panel, line); type(6.5f, soft, true); center(c, names[i], r.centerX(), dp(575));
-                addHit(r, "PKG:" + pkgs[i]);
+                box(c, r, 12, panel, line); type(5.4f, soft, true); center(c, names[i], r.centerX(), dp(575));
+                addHit(r, actions[i]);
             }
             type(6.5f, ghost, false); c.drawText("SWIPE DOWN → NODE CONTROL", left, dp(613), paint);
+        }
+
+        void drawHomeLandscape(Canvas c) {
+            float left = dp(16), right = getWidth() - dp(16), top = dp(67), bottom = getHeight() - dp(58), gap = dp(8);
+            float col = (right - left - gap * 2f) / 3f;
+            float x1 = left, x2 = left + col + gap, x3 = x2 + col + gap;
+
+            RectF terminal = new RectF(x1, top, x1 + col, dp(191));
+            box(c, terminal, 14, panel, line); type(7, mintDim, true); c.drawText("// LIVE CONTROL", x1 + dp(12), top + dp(20), paint);
+            type(8, mint, false); c.drawText("MESH  " + meshIp, x1 + dp(12), top + dp(45), paint);
+            c.drawText("MAC " + macState + " • LOLILE " + diskState, x1 + dp(12), top + dp(67), paint);
+            c.drawText("SSHD " + sshState + " • ROOT " + (rooted ? "YES" : "NO"), x1 + dp(12), top + dp(89), paint);
+            type(6.2f, soft, true); c.drawText("> " + trimText(message, 34), x1 + dp(12), top + dp(112), paint);
+
+            float tileTop = dp(199), tileH = (bottom - tileTop - gap) / 2f, tileW = (col - gap) / 2f;
+            button(c, new RectF(x1, tileTop, x1 + tileW, tileTop + tileH), "CLI", "CODEX", "MAC CLI", true, "CODEX");
+            button(c, new RectF(x1 + tileW + gap, tileTop, x1 + col, tileTop + tileH), "SFTP", "DISK", "LOLILE B:\\", true, "DISK");
+            button(c, new RectF(x1, tileTop + tileH + gap, x1 + tileW, bottom), "SSH", "MAC", macState, false, "MAC");
+            button(c, new RectF(x1 + tileW + gap, tileTop + tileH + gap, x1 + col, bottom), "LINUX", "DEBIAN", "LOCAL", false, "LOCAL");
+
+            RectF remember = new RectF(x2, top, x2 + col, dp(174));
+            box(c, remember, 14, panelHot, mintDim); type(8, mint, true); c.drawText("daakREMEMBER // TAILSYNC", x2 + dp(12), top + dp(22), paint);
+            type(7, soft, false); c.drawText(trimText(rememberLine, 34), x2 + dp(12), top + dp(48), paint);
+            type(6, ghost, false); c.drawText("TAP → VIEW / CAPTURE • 45831", x2 + dp(12), top + dp(73), paint); addHit(remember, "REMEMBER");
+            RectF obsidian = new RectF(x2, dp(182), x2 + col, dp(239));
+            button(c, obsidian, "MD", "OBSIDIAN", "FIRAT VAULT • LOCAL", false, "OBSIDIAN");
+            float miniTop = dp(247), miniW = (col - gap * 2f) / 3f;
+            String[] miniNames = {"AUXIO", "CAMERA", "MAIL"};
+            String[] miniActions = {"PKG:org.oxycblt.auxio", "PKG:com.sec.android.app.camera", "MAIL"};
+            for (int i = 0; i < 3; i++) {
+                RectF r = new RectF(x2 + i * (miniW + gap), miniTop, x2 + i * (miniW + gap) + miniW, bottom);
+                box(c, r, 11, panel, line); type(6.5f, soft, true); center(c, miniNames[i], r.centerX(), r.centerY() + dp(3)); addHit(r, miniActions[i]);
+            }
+
+            RectF mail = new RectF(x3, top, x3 + col, dp(126));
+            box(c, mail, 12, panel, line); type(7, mint, true); c.drawText("MAIL // ALL ACCOUNTS", x3 + dp(10), top + dp(20), paint);
+            type(6.3f, soft, false); c.drawText(trimText(mailLine, 35), x3 + dp(10), top + dp(42), paint); addHit(mail, "MAIL");
+            RectF climate = new RectF(x3, dp(134), x3 + col, dp(193));
+            box(c, climate, 12, panel, line); type(7, mint, true); c.drawText("WEATHER", x3 + dp(10), dp(153), paint);
+            type(6.3f, soft, false); c.drawText(trimText(weather, 35), x3 + dp(10), dp(177), paint); addHit(climate, "WEATHER");
+            RectF agenda = new RectF(x3, dp(201), x3 + col, bottom);
+            box(c, agenda, 12, panel, line); type(7, mint, true); c.drawText("AGENDA // NEXT", x3 + dp(10), dp(221), paint);
+            type(6.3f, soft, false); c.drawText(trimText(agendaOne, 35), x3 + dp(10), dp(246), paint);
+            type(6, ghost, false); c.drawText(trimText(agendaTwo, 37), x3 + dp(10), dp(269), paint); addHit(agenda, "CALENDAR");
         }
 
         void drawApps(Canvas c) {
@@ -616,6 +851,69 @@ public final class MainActivity extends Activity {
                 hits.add(new Hit(new RectF(row), shownApps.get(i)));
             }
             c.restore();
+        }
+
+        void drawAppsLandscape(Canvas c) {
+            float left = dp(16), right = getWidth() - dp(16), gap = dp(8);
+            RectF search = new RectF(left, dp(67), right, dp(105));
+            box(c, search, 10, panel, line); type(8, query.length() == 0 ? soft : mint, false);
+            c.drawText(query.length() == 0 ? "ALL APPS // TAP TO SEARCH" : "FILTER: " + query.toUpperCase(Locale.US), left + dp(12), dp(92), paint); addHit(search, "SEARCH");
+            float top = dp(114), bottom = getHeight() - dp(58), rowH = dp(42), colW = (right - left - gap) / 2f;
+            c.save(); c.clipRect(left, top, right, bottom);
+            for (int i = 0; i < shownApps.size(); i++) {
+                int rowIndex = i / 2, column = i % 2;
+                float y = top + rowIndex * rowH - drawerScroll, x = left + column * (colW + gap);
+                if (y + rowH < top || y > bottom) continue;
+                RectF row = new RectF(x, y, x + colW, y + rowH - dp(3));
+                box(c, row, 7, panel, line); type(7, mintDim, true); c.drawText(String.format(Locale.US, "%02d", i + 1), x + dp(8), y + dp(17), paint);
+                type(8, soft, true); c.drawText(trimText(shownApps.get(i).label.toUpperCase(Locale.US), 25), x + dp(36), y + dp(18), paint);
+                type(5.5f, ghost, false); c.drawText(trimText(shownApps.get(i).packageName, 39), x + dp(36), y + dp(33), paint);
+                hits.add(new Hit(new RectF(row), shownApps.get(i)));
+            }
+            c.restore();
+        }
+
+        void drawHelpLandscape(Canvas c) {
+            float left = dp(16), right = getWidth() - dp(16), top = dp(67), bottom = getHeight() - dp(58), gap = dp(8);
+            String[] lines = {
+                    "CODEX → Mac gerçek CLI", "LOLILE → B:\\ Tailnet SFTP", "REMEMBER → Mac TailSync", "OBSIDIAN → FIRAT Vault",
+                    "MAIL → 5+ hesap salt okunur", "AGENDA → Android Calendar", "VAULT → biyometri/PIN", "APPS → ara ve çalıştır"
+            };
+            float colW = (right - left - gap * 3f) / 4f, rowH = (bottom - top - gap) / 2f;
+            for (int i = 0; i < lines.length; i++) {
+                int row = i / 4, colIndex = i % 4;
+                RectF r = new RectF(left + colIndex * (colW + gap), top + row * (rowH + gap), left + colIndex * (colW + gap) + colW, top + row * (rowH + gap) + rowH);
+                box(c, r, 11, panel, line); type(7, i < 4 ? mint : soft, true); c.drawText(trimText(lines[i], 25), r.left + dp(10), r.top + dp(25), paint);
+            }
+        }
+
+        void drawControlLandscape(Canvas c) {
+            float left = dp(16), right = getWidth() - dp(16), top = dp(67), bottom = getHeight() - dp(58), gap = dp(8);
+            String[][] tiles = {
+                    {"VPN", "TAILSCALE", "PKG:com.tailscale.ipn"}, {"NET", "WI-FI", "SET:WIFI"}, {"RADIO", "BLUETOOTH", "SET:BT"}, {"UI", "DISPLAY", "SET:DISPLAY"},
+                    {"SEC", "BIOMETRICS", "SET:SECURITY"}, {"ALERT", "NOTIFY", "SET:NOTIFY"}, {"MAIL", "MAIL ACCESS", "SET:MAILACCESS"}, {"SCAN", "REFRESH", "REFRESH"}
+            };
+            float colW = (right - left - gap * 3f) / 4f, rowH = (bottom - top - gap) / 2f;
+            for (int i = 0; i < tiles.length; i++) {
+                int row = i / 4, colIndex = i % 4;
+                RectF r = new RectF(left + colIndex * (colW + gap), top + row * (rowH + gap), left + colIndex * (colW + gap) + colW, top + row * (rowH + gap) + rowH);
+                button(c, r, tiles[i][0], tiles[i][1], i == 0 ? meshIp : "OPEN PANEL", i == 7, tiles[i][2]);
+            }
+        }
+
+        void drawDiskLandscape(Canvas c) {
+            float left = dp(16), right = getWidth() - dp(16), top = dp(67), bottom = getHeight() - dp(58), gap = dp(8);
+            float side = dp(190), listLeft = left + side + gap;
+            RectF refresh = new RectF(left, top, left + side, bottom);
+            button(c, refresh, "SFTP", "LOLILE B:\\", diskState + " • TAP REFRESH", true, "DISK_REFRESH");
+            float colW = (right - listLeft - gap) / 2f, rowH = dp(42);
+            if (diskItems.isEmpty()) { type(9, soft, false); c.drawText("Disk index loading...", listLeft, top + dp(28), paint); }
+            else for (int i = 0; i < diskItems.size() && i < 12; i++) {
+                int row = i / 2, colIndex = i % 2; float x = listLeft + colIndex * (colW + gap), y = top + row * rowH;
+                if (y + rowH > bottom) break;
+                RectF r = new RectF(x, y, x + colW, y + rowH - dp(3)); box(c, r, 7, panel, line);
+                String item = diskItems.get(i); type(7, item.startsWith("[D]") ? mint : soft, item.startsWith("[D]")); c.drawText(trimText(item, 34), x + dp(9), y + dp(25), paint); addHit(r, "DISK_TERM");
+            }
         }
 
         void drawHelp(Canvas c) {
@@ -720,6 +1018,20 @@ public final class MainActivity extends Activity {
             }
         }
 
+        void drawDockLandscape(Canvas c) {
+            float w = getWidth(), top = getHeight() - dp(50), left = dp(10), right = w - dp(10);
+            paint.setStyle(Paint.Style.FILL); paint.setColor(Color.BLACK); c.drawRect(0, top - dp(4), w, getHeight(), paint);
+            paint.setColor(line); c.drawRect(left, top - dp(1), right, top, paint);
+            String[] labels = {"HOME", "APPS", "CODEX", "DISK", "HELP"};
+            String[] actions = {"HOME", "APPS", "CODEX", "DISK", "HELP"};
+            float cell = (right - left) / 5f;
+            for (int i = 0; i < 5; i++) {
+                RectF r = new RectF(left + i * cell, top, left + (i + 1) * cell, getHeight());
+                boolean selected = (i == 0 && mode == HOME) || (i == 1 && mode == APPS) || (i == 3 && mode == DISK_VIEW) || (i == 4 && mode == HELP);
+                type(7, selected ? mint : soft, true); center(c, labels[i], r.centerX(), top + dp(30)); addHit(r, actions[i]);
+            }
+        }
+
         void showSearch() {
             final EditText input = new EditText(MainActivity.this);
             input.setSingleLine(true); input.setText(query); input.setSelectAllOnFocus(true);
@@ -784,6 +1096,36 @@ public final class MainActivity extends Activity {
                     .setNegativeButton("İPTAL", null).show();
         }
 
+        void showRememberPanel() {
+            refreshRemember();
+            StringBuilder body = new StringBuilder("TAILNET ONLY // ").append(rememberOpenCount).append(" açık not\n\n");
+            if (rememberItems.isEmpty()) body.append("Henüz okunabilir not yok veya Mac çevrimdışı.");
+            else for (int i = 0; i < rememberItems.size() && i < 8; i++) body.append(rememberItems.get(i)).append("\n\n");
+            new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("daakREMEMBER")
+                    .setMessage(body.toString())
+                    .setPositiveButton("YENİ NOT", (d, which) -> showRememberCapture())
+                    .setNeutralButton("YENİLE", (d, which) -> refreshRemember())
+                    .setNegativeButton("KAPAT", null).show();
+        }
+
+        void showRememberCapture() {
+            final EditText input = new EditText(MainActivity.this);
+            input.setSingleLine(false); input.setMinLines(3); input.setHint("Aklına geleni yakala...");
+            new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("REMEMBER // QUICK CAPTURE")
+                    .setView(input)
+                    .setPositiveButton("MAC'E SENKRONLA", (d, which) -> addRememberNote(input.getText().toString()))
+                    .setNegativeButton("İPTAL", null).show();
+        }
+
+        void launchObsidian() {
+            try {
+                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("obsidian://open?vault=FIRAT-Vault"));
+                intent.setPackage("md.obsidian"); startActivity(intent);
+            } catch (RuntimeException error) { launchPackage("md.obsidian"); }
+        }
+
         @Override public boolean onTouchEvent(MotionEvent event) {
             float x = event.getX() - burnX, y = event.getY() - burnY;
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
@@ -792,7 +1134,9 @@ public final class MainActivity extends Activity {
             if (event.getAction() == MotionEvent.ACTION_MOVE) {
                 if (mode == APPS) {
                     float delta = lastY - y; if (Math.abs(y - downY) > dp(5)) moved = true;
-                    float max = Math.max(0, shownApps.size() * dp(49) - (getHeight() - dp(260)));
+                    float max;
+                    if (getWidth() > getHeight()) max = Math.max(0, ((shownApps.size() + 1) / 2f) * dp(42) - (getHeight() - dp(172)));
+                    else max = Math.max(0, shownApps.size() * dp(49) - (getHeight() - dp(260)));
                     drawerScroll = Math.max(0, Math.min(max, drawerScroll + delta));
                     lastY = y; invalidate();
                 }
@@ -820,6 +1164,8 @@ public final class MainActivity extends Activity {
             else if (a.equals("VAULT")) authenticate();
             else if (a.equals("REFRESH")) { message = "STATUS REFRESHING"; refreshStatus(); }
             else if (a.equals("MAIL")) showMailPanel();
+            else if (a.equals("REMEMBER")) showRememberPanel();
+            else if (a.equals("OBSIDIAN")) launchObsidian();
             else if (a.equals("WEATHER")) showWeatherSetup();
             else if (a.equals("CALENDAR")) {
                 if (checkSelfPermission("android.permission.READ_CALENDAR") != PackageManager.PERMISSION_GRANTED)

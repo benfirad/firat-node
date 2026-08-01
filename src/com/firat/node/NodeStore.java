@@ -26,6 +26,7 @@ final class NodeStore {
     static void ensureChannel(Context context) {
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (manager == null) return;
             NotificationChannel channel = new NotificationChannel(CHANNEL, "Mail summaries", NotificationManager.IMPORTANCE_DEFAULT);
             channel.setDescription("FIRAT NODE read-only mail summaries");
             manager.createNotificationChannel(channel);
@@ -81,14 +82,17 @@ final class NodeStore {
     static void schedule(Context context) {
         ensureChannel(context);
         AlarmManager alarm = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        if (alarm == null) return;
         scheduleOne(context, alarm, ACTION_HOURLY, 701, nextHour());
         scheduleOne(context, alarm, ACTION_MORNING, 702, nextMorning());
     }
 
     private static void scheduleOne(Context context, AlarmManager alarm, String action, int request, long at) {
         Intent intent = new Intent(context, NodeAlarmReceiver.class).setAction(action);
-        PendingIntent pending = PendingIntent.getBroadcast(context, request, intent, PendingIntent.FLAG_UPDATE_CURRENT);
-        alarm.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending);
+        PendingIntent pending = PendingIntent.getBroadcast(context, request, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        try { alarm.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending); }
+        catch (RuntimeException ignored) { alarm.set(AlarmManager.RTC_WAKEUP, at, pending); }
     }
 
     private static long nextHour() {
