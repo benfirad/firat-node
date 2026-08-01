@@ -377,7 +377,7 @@ public final class MainActivity extends Activity {
         int mode = HOME;
         String query = "";
         String meshIp = "CHECKING", macState = "CHECKING", diskState = "CHECKING";
-        String sshState = "CHECKING", message = "DAAK NODE V5 READY";
+        String sshState = "CHECKING", message = "DAAK NODE V6 READY";
         String weather = "TAP TO ENABLE", agendaOne = "Calendar permission required", agendaTwo = "";
         String mailLine = "Connect Thunderbird + notification access";
         String weatherCity = "";
@@ -1175,10 +1175,11 @@ public final class MainActivity extends Activity {
             String encoded = Base64.encodeToString(ps.getBytes(Charset.forName("UTF-16LE")), Base64.NO_WRAP);
             String target = "/sdcard/Download/daak-lolile-list.txt";
             String temporary = target + "." + request + ".tmp";
-            String command = "( ssh -o ConnectTimeout=8 lolile powershell.exe -NoProfile -EncodedCommand " + encoded +
-                    "; printf '\\n[OK] " + request + "\\n' ) > " + temporary +
-                    " 2>&1 && mv -f " + temporary + " " + target +
-                    " || { printf '[ERR] " + request + "\\n' > " + temporary + "; mv -f " + temporary + " " + target + "; }";
+            String command = "if ssh -o ConnectTimeout=8 lolile powershell.exe -NoProfile -EncodedCommand " + encoded +
+                    " > " + temporary + " 2>/dev/null; then printf '\\n[OK] " + request + "\\n' >> " + temporary +
+                    "; mv -f " + temporary + " " + target +
+                    "; else printf '[ERR] " + request + "\\n' > " + temporary +
+                    "; mv -f " + temporary + " " + target + "; fi";
             runTermuxRaw(command, true, null);
             handler.postDelayed(() -> pollDiskIndex(request, 0), 1000L);
         }
