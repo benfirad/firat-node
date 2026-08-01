@@ -1,0 +1,4 @@
+# Copy to /sdcard/Download/firat-node/config.properties on the phone.
+# Use Tailnet DNS names or private Tailscale IP addresses.
+mac_host=your-mac.tailnet.example
+lolile_host=your-windows-node.tailnet.example
