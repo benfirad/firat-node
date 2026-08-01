@@ -26,11 +26,12 @@ import android.os.Bundle;
 import android.os.CancellationSignal;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
 import android.provider.Settings;
 import android.provider.CalendarContract;
 import android.net.Uri;
 import android.util.Base64;
-import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
@@ -74,6 +75,7 @@ public final class MainActivity extends Activity {
     private Runnable pendingProtectedAction;
     private CancellationSignal biometricCancellation;
     private long vaultUnlockedUntil;
+    private boolean updateCheckRunning;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -101,6 +103,7 @@ public final class MainActivity extends Activity {
             nodeView.reloadApps();
             nodeView.startUpdates();
         }
+        maybeCheckUpdate(false);
     }
 
     @Override protected void onPause() {
@@ -184,6 +187,49 @@ public final class MainActivity extends Activity {
         } catch (RuntimeException error) {
             launchPackage("org.futo.voiceinput");
         }
+    }
+
+    private void maybeCheckUpdate(final boolean manual) {
+        if (updateCheckRunning) return;
+        SharedPreferences prefs = getSharedPreferences(NodeStore.PREFS, 0);
+        long now = System.currentTimeMillis();
+        if (!manual && now - prefs.getLong("last_update_check", 0L) < 24L * 60L * 60L * 1000L) return;
+        updateCheckRunning = true;
+        prefs.edit().putLong("last_update_check", now).apply();
+        if (manual && nodeView != null) { nodeView.message = "UPDATE // CHECKING"; nodeView.invalidate(); }
+        NodeUpdater.check(this, new NodeUpdater.CheckCallback() {
+            @Override public void onCurrent() {
+                updateCheckRunning = false;
+                if (manual) toast("DAAK NODE güncel");
+                if (nodeView != null) { nodeView.message = "UPDATE // CURRENT"; nodeView.invalidate(); }
+            }
+            @Override public void onAvailable(final NodeUpdater.Update update) {
+                updateCheckRunning = false;
+                new AlertDialog.Builder(MainActivity.this)
+                        .setTitle("DAAK NODE " + update.versionName)
+                        .setMessage((update.notes.length() == 0 ? "Yeni güvenli güncelleme hazır." : update.notes) +
+                                "\n\nAPK indirilmeden önce SHA-256 ile doğrulanacak; kurulum biyometri ister.")
+                        .setPositiveButton("DOĞRULA VE KUR", (d, which) -> guarded(() -> installUpdate(update)))
+                        .setNegativeButton("SONRA", null).show();
+            }
+            @Override public void onError(String error) {
+                updateCheckRunning = false;
+                if (manual) toast("Güncelleme kontrolü başarısız: " + error);
+                if (nodeView != null && manual) { nodeView.message = "UPDATE // OFFLINE"; nodeView.invalidate(); }
+            }
+        });
+    }
+
+    private void installUpdate(NodeUpdater.Update update) {
+        NodeUpdater.downloadAndInstall(this, update, new NodeUpdater.InstallCallback() {
+            @Override public void onStatus(String status) {
+                if (nodeView != null) { nodeView.message = status; nodeView.invalidate(); }
+            }
+            @Override public void onError(String error) {
+                toast("Güncelleme kurulamadı: " + error);
+                if (nodeView != null) { nodeView.message = "UPDATE // FAILED"; nodeView.invalidate(); }
+            }
+        });
     }
 
     private void startSshdBackground() {
@@ -311,7 +357,7 @@ public final class MainActivity extends Activity {
     }
 
     private final class NodeView extends View {
-        static final int HOME = 0, APPS = 1, HELP = 2, CONTROL = 3, DISK_VIEW = 4;
+        static final int HOME = 0, APPS = 1, HELP = 2, CONTROL = 3, DISK_VIEW = 4, REMOTE = 5;
         final int mint = Color.rgb(120, 247, 212);
         final int mintDim = Color.rgb(57, 135, 114);
         final int panel = Color.rgb(5, 12, 10);
@@ -336,6 +382,9 @@ public final class MainActivity extends Activity {
         String mailLine = "Connect Thunderbird + notification access";
         String weatherCity = "";
         String rememberLine = "SYNCING WITH MAC...";
+        String diskMessage = "Cached index not loaded";
+        long diskRequestToken;
+        boolean diskLoading;
         int rememberOpenCount;
         boolean rooted, vaultUnlocked;
         float drawerScroll, downX, downY, lastY;
@@ -718,6 +767,15 @@ public final class MainActivity extends Activity {
         }
 
         float dp(float value) { return value * getResources().getDisplayMetrics().density; }
+        void softHaptic() {
+            try {
+                Vibrator vibrator = (Vibrator)getSystemService(VIBRATOR_SERVICE);
+                if (vibrator == null || !vibrator.hasVibrator()) return;
+                if (android.os.Build.VERSION.SDK_INT >= 26)
+                    vibrator.vibrate(VibrationEffect.createOneShot(9L, 64));
+                else vibrator.vibrate(9L);
+            } catch (RuntimeException ignored) { }
+        }
         void type(float size, int color, boolean bold) {
             paint.setTextSize(dp(size)); paint.setColor(color);
             paint.setTypeface(Typeface.create(mono, bold ? Typeface.BOLD : Typeface.NORMAL));
@@ -747,14 +805,16 @@ public final class MainActivity extends Activity {
                 else if (mode == APPS) drawAppsLandscape(c);
                 else if (mode == HELP) drawHelpLandscape(c);
                 else if (mode == CONTROL) drawControlLandscape(c);
-                else drawDiskLandscape(c);
+                else if (mode == DISK_VIEW) drawDiskLandscape(c);
+                else drawRemoteLandscape(c);
                 drawDockLandscape(c);
             } else {
                 if (mode == HOME) drawHome(c);
                 else if (mode == APPS) drawApps(c);
                 else if (mode == HELP) drawHelp(c);
                 else if (mode == CONTROL) drawControl(c);
-                else drawDisk(c);
+                else if (mode == DISK_VIEW) drawDisk(c);
+                else drawRemote(c);
                 drawDock(c);
             }
             c.restore();
@@ -790,7 +850,7 @@ public final class MainActivity extends Activity {
             float half = (right - left - gap) / 2f;
             button(c, new RectF(left, dp(221), left + half, dp(277)), "CLI", "CODEX", "MAC • REAL CLI", true, "CODEX");
             button(c, new RectF(left + half + gap, dp(221), right, dp(277)), "SFTP", "LOLILE DISK", "B:\\ • TAILNET", true, "DISK");
-            button(c, new RectF(left, dp(285), left + half, dp(341)), "SSH", "MAC SHELL", macState, false, "MAC");
+            button(c, new RectF(left, dp(285), left + half, dp(341)), "TOUCH", "REMOTE", "4 DEVICES", false, "REMOTE");
             button(c, new RectF(left + half + gap, dp(285), right, dp(341)), "LINUX", "DEBIAN", "LOCAL PROOT", false, "LOCAL");
 
             type(7, mintDim, true); c.drawText("// INTELLIGENCE", left, dp(363), paint);
@@ -834,7 +894,7 @@ public final class MainActivity extends Activity {
             float tileTop = dp(199), tileH = (bottom - tileTop - gap) / 2f, tileW = (col - gap) / 2f;
             button(c, new RectF(x1, tileTop, x1 + tileW, tileTop + tileH), "CLI", "CODEX", "MAC CLI", true, "CODEX");
             button(c, new RectF(x1 + tileW + gap, tileTop, x1 + col, tileTop + tileH), "SFTP", "DISK", "LOLILE B:\\", true, "DISK");
-            button(c, new RectF(x1, tileTop + tileH + gap, x1 + tileW, bottom), "SSH", "MAC", macState, false, "MAC");
+            button(c, new RectF(x1, tileTop + tileH + gap, x1 + tileW, bottom), "TOUCH", "REMOTE", "4 DEVICES", false, "REMOTE");
             button(c, new RectF(x1 + tileW + gap, tileTop + tileH + gap, x1 + col, bottom), "LINUX", "DEBIAN", "LOCAL", false, "LOCAL");
 
             RectF remember = new RectF(x2, top, x2 + col, dp(174));
@@ -924,7 +984,7 @@ public final class MainActivity extends Activity {
             float left = dp(16), right = getWidth() - dp(16), top = dp(67), bottom = getHeight() - dp(58), gap = dp(8);
             String[][] tiles = {
                     {"VPN", "TAILSCALE", "PKG:com.tailscale.ipn"}, {"PC", "DAAK LOLILE", "LOLILE_HUB"}, {"PIN", "PINNED APPS", "PINS"}, {"KEY", "KEYBOARD", "SET:INPUT"},
-                    {"SEC", "BIOMETRICS", "SET:SECURITY"}, {"WA", "WHATSAPP TASKS", "WHATSAPP"}, {"MIC", "DAAK DİKTE", "DICTATE"}, {"SCAN", "REFRESH", "REFRESH"}
+                    {"SEC", "BIOMETRICS", "SET:SECURITY"}, {"WA", "WHATSAPP TASKS", "WHATSAPP"}, {"MIC", "DAAK INBOX", "DICTATE"}, {"UP", "UPDATE", "CHECK_UPDATE"}
             };
             float colW = (right - left - gap * 3f) / 4f, rowH = (bottom - top - gap) / 2f;
             for (int i = 0; i < tiles.length; i++) {
@@ -934,13 +994,93 @@ public final class MainActivity extends Activity {
             }
         }
 
+        String remoteEndpoint(int index) {
+            SharedPreferences prefs = getSharedPreferences(NodeStore.PREFS, 0);
+            String[] keys = {"remote_lolile", "remote_mac", "remote_bedirhan_mac", "remote_bedirhan_windows"};
+            String fallback = "";
+            if (index == 0) fallback = nodeConfig("lolile_host", "lolile") + ":21118";
+            else if (index == 1) fallback = nodeConfig("mac_host", "mac") + ":21118";
+            return prefs.getString(keys[index], fallback).trim();
+        }
+
+        void drawRemote(Canvas c) {
+            float left = dp(16), right = getWidth() - dp(16), gap = dp(8);
+            type(17, mint, true); c.drawText("REMOTE // TOUCH DESKTOP", left, dp(88), paint);
+            type(7, soft, false); c.drawText("RUSTDESK • TAILNET DIRECT • NO PUBLIC PORT", left, dp(107), paint);
+            String[] names = {"LOLILE WINDOWS", "MY MAC", "BEDIRHAN MAC", "BEDIRHAN WINDOWS"};
+            float half = (right - left - gap) / 2f, top = dp(124), h = dp(92);
+            for (int i = 0; i < names.length; i++) {
+                int row = i / 2, col = i % 2;
+                String endpoint = remoteEndpoint(i);
+                RectF r = new RectF(left + col * (half + gap), top + row * (h + gap),
+                        left + col * (half + gap) + half, top + row * (h + gap) + h);
+                button(c, r, "TOUCH", names[i], endpoint.length() == 0 ? "NOT CONFIGURED" : trimText(endpoint, 24),
+                        i < 2, "REMOTE_CONNECT:" + i);
+            }
+            RectF configure = new RectF(left, top + dp(208), right, top + dp(278));
+            button(c, configure, "EDIT", "REMOTE DEVICES", "IDS / TAILNET IP • LOCAL ONLY", false, "REMOTE_CONFIG");
+            type(7, ghost, false); c.drawText("RustDesk toolbar → Touch mode • keyboard icon → on-screen keys", left, top + dp(304), paint);
+        }
+
+        void drawRemoteLandscape(Canvas c) {
+            float left = dp(16), right = getWidth() - dp(16), top = dp(67), bottom = getHeight() - dp(58), gap = dp(8);
+            String[] names = {"LOLILE WINDOWS", "MY MAC", "BEDIRHAN MAC", "BEDIRHAN WINDOWS"};
+            float side = dp(180), listLeft = left + side + gap;
+            RectF configure = new RectF(left, top, left + side, bottom);
+            button(c, configure, "REMOTE", "TOUCH HUB", "TAP TO CONFIGURE", true, "REMOTE_CONFIG");
+            float cell = (right - listLeft - gap) / 2f, h = (bottom - top - gap) / 2f;
+            for (int i = 0; i < names.length; i++) {
+                int row = i / 2, col = i % 2;
+                String endpoint = remoteEndpoint(i);
+                RectF r = new RectF(listLeft + col * (cell + gap), top + row * (h + gap),
+                        listLeft + col * (cell + gap) + cell, top + row * (h + gap) + h);
+                button(c, r, "TOUCH", names[i], endpoint.length() == 0 ? "NOT CONFIGURED" : trimText(endpoint, 27),
+                        i < 2, "REMOTE_CONNECT:" + i);
+            }
+        }
+
+        void connectRemote(int index) {
+            String endpoint = remoteEndpoint(index);
+            if (endpoint.length() == 0) { showRemoteConfig(index); return; }
+            try {
+                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse("rustdesk://connect/" + Uri.encode(endpoint)));
+                intent.setPackage("com.carriez.flutter_hbb"); startActivity(intent);
+            } catch (RuntimeException error) { launchPackage("com.carriez.flutter_hbb"); }
+        }
+
+        void showRemoteConfig() {
+            final String[] names = {"LOLILE Windows", "My Mac", "Bedirhan Mac", "Bedirhan Windows"};
+            new AlertDialog.Builder(MainActivity.this).setTitle("REMOTE // DEVICE SELECT")
+                    .setItems(names, (dialog, which) -> showRemoteConfig(which))
+                    .setPositiveButton("RUSTDESK", (d, which) -> launchPackage("com.carriez.flutter_hbb"))
+                    .setNegativeButton("KAPAT", null).show();
+        }
+
+        void showRemoteConfig(final int index) {
+            final String[] keys = {"remote_lolile", "remote_mac", "remote_bedirhan_mac", "remote_bedirhan_windows"};
+            final String[] names = {"LOLILE Windows", "My Mac", "Bedirhan Mac", "Bedirhan Windows"};
+            final EditText input = new EditText(MainActivity.this);
+            input.setSingleLine(true); input.setHint("RustDesk ID or Tailnet IP:21118"); input.setText(remoteEndpoint(index));
+            new AlertDialog.Builder(MainActivity.this).setTitle(names[index])
+                    .setMessage("Şifre burada tutulmaz; RustDesk güvenli deposunda kalır.")
+                    .setView(input)
+                    .setPositiveButton("KAYDET", (d, which) -> {
+                        getSharedPreferences(NodeStore.PREFS, 0).edit().putString(keys[index], input.getText().toString().trim()).apply();
+                        invalidate();
+                    })
+                    .setNeutralButton("TEMİZLE", (d, which) -> {
+                        getSharedPreferences(NodeStore.PREFS, 0).edit().putString(keys[index], "").apply(); invalidate();
+                    })
+                    .setNegativeButton("İPTAL", null).show();
+        }
+
         void drawDiskLandscape(Canvas c) {
             float left = dp(16), right = getWidth() - dp(16), top = dp(67), bottom = getHeight() - dp(58), gap = dp(8);
             float side = dp(190), listLeft = left + side + gap;
             RectF refresh = new RectF(left, top, left + side, bottom);
             button(c, refresh, "SFTP", trimText(diskPath, 22), diskState + " • TAP REFRESH", true, "DISK_REFRESH");
             float colW = (right - listLeft - gap) / 2f, rowH = dp(42);
-            if (diskItems.isEmpty()) { type(9, soft, false); c.drawText("Disk index loading...", listLeft, top + dp(28), paint); }
+            if (diskItems.isEmpty()) { type(9, soft, false); c.drawText(diskMessage, listLeft, top + dp(28), paint); }
             else for (int i = 0; i < diskItems.size() && i < 12; i++) {
                 int row = i / 2, colIndex = i % 2; float x = listLeft + colIndex * (colW + gap), y = top + row * rowH;
                 if (y + rowH > bottom) break;
@@ -984,7 +1124,7 @@ public final class MainActivity extends Activity {
                     {"VPN", "TAILSCALE", "PKG:com.tailscale.ipn"}, {"PC", "DAAK LOLILE", "LOLILE_HUB"},
                     {"PIN", "PINNED APPS", "PINS"}, {"KEY", "KEYBOARD", "SET:INPUT"},
                     {"SEC", "BIOMETRICS", "SET:SECURITY"}, {"WA", "WHATSAPP TASKS", "WHATSAPP"},
-                    {"MAIL", "MAIL ACCESS", "SET:MAILACCESS"}, {"MIC", "DAAK DİKTE", "DICTATE"}
+                    {"UP", "UPDATE", "CHECK_UPDATE"}, {"MIC", "DAAK INBOX", "DICTATE"}
             };
             float half = (right - left - gap) / 2f, top = dp(124), h = dp(71);
             for (int i = 0; i < tiles.length; i++) {
@@ -1008,7 +1148,7 @@ public final class MainActivity extends Activity {
             button(c, refresh, "SFTP", "REFRESH", "PRIVATE TAILNET", true, "DISK_REFRESH");
             float y = dp(194);
             if (diskItems.isEmpty()) {
-                type(9, soft, false); c.drawText("Disk index loading...", left, y + dp(24), paint);
+                type(9, soft, false); c.drawText(diskMessage, left, y + dp(24), paint);
             } else {
                 for (int i = 0; i < diskItems.size() && i < 13; i++) {
                     RectF row = new RectF(left, y, right, y + dp(43));
@@ -1022,38 +1162,73 @@ public final class MainActivity extends Activity {
         }
 
         void refreshDiskIndex() {
+            loadCachedDiskIndex();
+            diskLoading = true;
+            diskRequestToken = System.currentTimeMillis();
+            final long request = diskRequestToken;
+            diskMessage = "Refreshing over Tailnet...";
             message = "LOLILE INDEX REFRESHING"; invalidate();
             String escaped = diskPath.replace("'", "''");
             String ps = "$p='" + escaped + "';[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;" +
                     "Write-Output ('[P] '+$p);Get-ChildItem -LiteralPath $p | Sort-Object @{Expression={-not $_.PSIsContainer}},Name | " +
                     "ForEach-Object { if ($_.PSIsContainer) { '[D] ' + $_.Name } else { '[F] ' + $_.Name } }";
             String encoded = Base64.encodeToString(ps.getBytes(Charset.forName("UTF-16LE")), Base64.NO_WRAP);
-            runTermuxRaw("ssh lolile powershell.exe -NoProfile -EncodedCommand " + encoded +
-                    " > /sdcard/Download/daak-lolile-list.txt", true, null);
-            postDelayed(() -> loadDiskIndex(0), 2500L);
+            String target = "/sdcard/Download/daak-lolile-list.txt";
+            String temporary = target + "." + request + ".tmp";
+            String command = "( ssh -o ConnectTimeout=8 lolile powershell.exe -NoProfile -EncodedCommand " + encoded +
+                    "; printf '\\n[OK] " + request + "\\n' ) > " + temporary +
+                    " 2>&1 && mv -f " + temporary + " " + target +
+                    " || { printf '[ERR] " + request + "\\n' > " + temporary + "; mv -f " + temporary + " " + target + "; }";
+            runTermuxRaw(command, true, null);
+            handler.postDelayed(() -> pollDiskIndex(request, 0), 1000L);
         }
 
-        void loadDiskIndex(final int attempt) {
+        void loadCachedDiskIndex() {
+            readDiskIndex(0L, false);
+        }
+
+        void pollDiskIndex(final long request, final int attempt) {
+            if (request != diskRequestToken || destroyed) return;
+            if (readDiskIndex(request, true)) return;
+            if (attempt < 14) handler.postDelayed(() -> pollDiskIndex(request, attempt + 1), 1000L);
+            else {
+                diskLoading = false;
+                diskMessage = diskItems.isEmpty() ? "Timeout • tap REFRESH" : "Refresh timed out • showing cache";
+                message = "LOLILE INDEX TIMEOUT"; invalidate();
+            }
+        }
+
+        boolean readDiskIndex(long expectedToken, boolean requireComplete) {
             File file = new File("/sdcard/Download/daak-lolile-list.txt");
             final ArrayList<String> loaded = new ArrayList<String>();
             String loadedPath = null;
+            boolean complete = !requireComplete;
+            boolean failed = false;
             try {
                 BufferedReader reader = new BufferedReader(new FileReader(file));
                 String lineText;
                 while ((lineText = reader.readLine()) != null) {
                     if (lineText.startsWith("[P] ")) loadedPath = lineText.substring(4).trim();
+                    else if (lineText.equals("[OK] " + expectedToken)) complete = true;
+                    else if (lineText.equals("[ERR] " + expectedToken)) { complete = true; failed = true; }
                     else if (lineText.trim().length() > 0) loaded.add(lineText.trim());
                 }
                 reader.close();
                 if (loadedPath != null) diskPath = loadedPath.equalsIgnoreCase("B:") ? "B:\\" : loadedPath;
-                if (!loaded.isEmpty()) {
-                    diskItems.clear(); diskItems.addAll(loaded); message = "LOLILE INDEX READY"; invalidate(); return;
+                if (!loaded.isEmpty() && (complete || !requireComplete)) {
+                    diskItems.clear(); diskItems.addAll(loaded);
                 }
-            } catch (Exception error) {
-                if (attempt >= 3) message = "LOLILE INDEX ERROR // " + error.getClass().getSimpleName();
+            } catch (Exception ignored) { return false; }
+            if (!complete) return false;
+            diskLoading = false;
+            if (failed) {
+                diskMessage = diskItems.isEmpty() ? "SSH/SFTP failed • tap REFRESH" : "Refresh failed • showing cache";
+                message = "LOLILE INDEX ERROR";
+            } else {
+                diskMessage = loaded.isEmpty() ? "Folder is empty" : loaded.size() + " items • live";
+                message = "LOLILE INDEX READY";
             }
-            if (attempt < 3) postDelayed(() -> loadDiskIndex(attempt + 1), 2500L);
-            else { message = "LOLILE FOLDER EMPTY OR OFFLINE"; diskItems.clear(); invalidate(); }
+            invalidate(); return true;
         }
 
         void openDiskItem(int index) {
@@ -1183,15 +1358,86 @@ public final class MainActivity extends Activity {
             final EditText input = new EditText(MainActivity.this);
             input.setSingleLine(false); input.setMinLines(3); input.setText(result); input.setSelection(result.length());
             new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("DAAK DİKTE // RESULT")
+                    .setTitle("DAAK INBOX // TRANSCRIPT")
                     .setView(input)
-                    .setPositiveButton("REMEMBER'A EKLE", (d, which) -> addRememberNote(input.getText().toString()))
-                    .setNeutralButton("PAYLAŞ", (d, which) -> {
-                        Intent share = new Intent(Intent.ACTION_SEND).setType("text/plain")
-                                .putExtra(Intent.EXTRA_TEXT, input.getText().toString());
-                        startActivity(Intent.createChooser(share, "Dikte metnini paylaş"));
+                    .setPositiveButton("CODEX İLE AYIR", (d, which) -> routeInboxWithCodex(input.getText().toString()))
+                    .setNeutralButton("HEDEFİ BEN SEÇEYİM", (d, which) -> showInboxDecision(
+                            input.getText().toString(), "Dikte notu", "manual", "Codex kullanılmadı."))
+                    .setNegativeButton("İPTAL", null).show();
+        }
+
+        void routeInboxWithCodex(String rawText) {
+            final String text = rawText.trim();
+            if (text.length() == 0) return;
+            if (checkSelfPermission("com.termux.permission.RUN_COMMAND") != PackageManager.PERMISSION_GRANTED) {
+                ensureTermuxPermission(); return;
+            }
+            final long token = System.currentTimeMillis();
+            String encoded = Base64.encodeToString(text.getBytes(Charset.forName("UTF-8")), Base64.NO_WRAP);
+            message = "DAAK INBOX // CODEX CLASSIFYING"; invalidate();
+            runTermuxRaw("exec ~/.shortcuts/daak-inbox " + encoded + " " + token, true, null);
+            handler.postDelayed(() -> pollInboxResult(token, text, 0), 1500L);
+            Toast.makeText(MainActivity.this, "Codex CLI düşünüyor • sonuç otomatik açılacak", Toast.LENGTH_LONG).show();
+        }
+
+        void pollInboxResult(final long token, final String original, final int attempt) {
+            File file = new File("/sdcard/Download/daak-inbox-" + token + ".json");
+            if (file.isFile() && file.length() > 0) {
+                try {
+                    BufferedReader reader = new BufferedReader(new FileReader(file));
+                    StringBuilder raw = new StringBuilder(); String lineText;
+                    while ((lineText = reader.readLine()) != null) raw.append(lineText);
+                    reader.close(); file.delete();
+                    JSONObject result = new JSONObject(raw.toString());
+                    if (result.has("error")) throw new IllegalStateException(result.optString("error"));
+                    String cleaned = result.optString("cleaned_text", original).trim();
+                    String title = result.optString("title", "Dikte notu").trim();
+                    String destination = result.optString("suggested_destination", "remember");
+                    String reason = result.optString("reason", "");
+                    message = "DAAK INBOX // READY"; invalidate();
+                    showInboxDecision(cleaned.length() == 0 ? original : cleaned, title, destination, reason);
+                    return;
+                } catch (Exception error) {
+                    message = "CODEX OFFLINE // MANUAL ROUTE"; invalidate();
+                    showInboxDecision(original, "Dikte notu", "manual", "Codex sonucu okunamadı; hedefi sen seç.");
+                    return;
+                }
+            }
+            if (attempt < 120) handler.postDelayed(() -> pollInboxResult(token, original, attempt + 1), 1500L);
+            else {
+                message = "CODEX TIMEOUT // MANUAL ROUTE"; invalidate();
+                showInboxDecision(original, "Dikte notu", "manual", "Mac veya Codex CLI zaman aşımına uğradı.");
+            }
+        }
+
+        void showInboxDecision(final String text, final String title, String suggested, String reason) {
+            String[] keys = {"remember", "obsidian", "both", "codex_only"};
+            String[] labels = {"daakREMEMBER → görev", "Obsidian → kalıcı not", "İkisine de yaz", "Codex CLI oturumu aç"};
+            for (int i = 0; i < keys.length; i++) if (keys[i].equals(suggested)) labels[i] = "★ " + labels[i];
+            final String[] options = labels;
+            new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("DAAK INBOX // " + trimText(title, 34))
+                    .setMessage(text + (reason.length() == 0 ? "" : "\n\nCodex önerisi: " + reason) +
+                            "\n\nHiçbir yere sen seçmeden yazılmadı.")
+                    .setItems(options, (dialog, which) -> {
+                        if (which == 0) addRememberNote(text);
+                        else if (which == 1) addObsidianCapture(title, text);
+                        else if (which == 2) { addRememberNote(text); addObsidianCapture(title, text); }
+                        else openCodexWithPrompt(text);
                     })
                     .setNegativeButton("İPTAL", null).show();
+        }
+
+        void addObsidianCapture(String title, String text) {
+            String title64 = Base64.encodeToString(title.getBytes(Charset.forName("UTF-8")), Base64.NO_WRAP);
+            String text64 = Base64.encodeToString(text.getBytes(Charset.forName("UTF-8")), Base64.NO_WRAP);
+            runTermuxRaw("exec ~/.shortcuts/obsidian-capture " + title64 + " " + text64, true, null);
+            message = "OBSIDIAN // INBOX SAVED"; invalidate();
+        }
+
+        void openCodexWithPrompt(String text) {
+            String encoded = Base64.encodeToString(text.getBytes(Charset.forName("UTF-8")), Base64.NO_WRAP);
+            guarded(() -> runTermux("exec ~/.shortcuts/daak-codex " + encoded, "CODEX CLI"));
         }
 
         void launchLolileHub() {
@@ -1302,7 +1548,7 @@ public final class MainActivity extends Activity {
             if (downX > getWidth() - dp(24) && downX - x > dp(65)) { showMode(CONTROL); return true; }
             if (downY < dp(58) && y - downY > dp(55)) { showMode(CONTROL); return true; }
             if (moved) return true;
-            performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+            softHaptic();
             for (int i = hits.size() - 1; i >= 0; i--) {
                 Hit hit = hits.get(i);
                 if (hit.rect.contains(x, y)) { handle(hit); return true; }
@@ -1317,6 +1563,7 @@ public final class MainActivity extends Activity {
             else if (a.equals("APPS")) showMode(APPS);
             else if (a.equals("HELP")) showMode(HELP);
             else if (a.equals("CONTROL")) showMode(CONTROL);
+            else if (a.equals("REMOTE")) showMode(REMOTE);
             else if (a.equals("SEARCH")) showSearch();
             else if (a.equals("VAULT")) authenticate();
             else if (a.equals("REFRESH")) { message = "STATUS REFRESHING"; refreshStatus(); }
@@ -1328,6 +1575,9 @@ public final class MainActivity extends Activity {
             else if (a.equals("WHATSAPP")) showWhatsAppPanel();
             else if (a.equals("LOLILE_HUB")) guarded(() -> launchLolileHub());
             else if (a.equals("DICTATE")) startDictation();
+            else if (a.equals("CHECK_UPDATE")) guarded(() -> maybeCheckUpdate(true));
+            else if (a.equals("REMOTE_CONFIG")) showRemoteConfig();
+            else if (a.startsWith("REMOTE_CONNECT:")) guarded(() -> connectRemote(Integer.parseInt(a.substring(15))));
             else if (a.equals("CALENDAR")) {
                 if (checkSelfPermission("android.permission.READ_CALENDAR") != PackageManager.PERMISSION_GRANTED)
                     requestPermissions(new String[]{"android.permission.READ_CALENDAR"}, CALENDAR_PERMISSION_REQUEST);
@@ -1340,7 +1590,7 @@ public final class MainActivity extends Activity {
             else if (a.equals("CODEX")) guarded(() -> runTermux("exec ~/.shortcuts/codex", "CODEX CLI"));
             else if (a.equals("MAC")) guarded(() -> runTermux("exec ~/.shortcuts/mac", "MAC SSH"));
             else if (a.equals("LOCAL")) guarded(() -> runTermux("exec ~/.shortcuts/debian", "DEBIAN"));
-            else if (a.equals("DISK")) guarded(() -> { showMode(DISK_VIEW); refreshDiskIndex(); });
+            else if (a.equals("DISK")) guarded(() -> { showMode(DISK_VIEW); loadCachedDiskIndex(); refreshDiskIndex(); });
             else if (a.startsWith("PKG:")) launchPackage(a.substring(4));
             else if (a.equals("SET:SECURITY")) openSettings(Settings.ACTION_SECURITY_SETTINGS);
             else if (a.equals("SET:SYSTEM")) openSettings(Settings.ACTION_SETTINGS);

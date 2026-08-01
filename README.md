@@ -11,6 +11,7 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Direct Codex CLI control over Termux + SSH (no API integration in the launcher)
 - Tailnet-only Mac and Windows/Lolie status, SSH and navigable B-drive workflows
 - daakLOLILE private dashboard integration
+- Four-device RustDesk touch hub with locally configurable IDs or Tailnet endpoints
 - Android Calendar Provider agenda with a read-only-by-default launcher view
 - Thunderbird notification summaries at 07:30 and every hour
 - Local sender/spam filters; the launcher never sends email
@@ -20,10 +21,12 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Native Tailnet integration with daakREMEMBER for reading and quick-capturing notes
 - Opt-in, keyword-limited WhatsApp notification-to-task capture; never sends messages
 - On-device Turkish dictation through Android's speech-recognition contract (tested with FUTO Voice Input)
+- DAAK Inbox routing: review a Codex CLI suggestion before writing dictated text to daakREMEMBER, Obsidian, both, or a Codex session
 - Four user-configurable pinned application slots
 - One-way daakREMEMBER task export into `DAAK-Vault/daakREMEMBER.md` for Obsidian
 - Obsidian deep link into a local `DAAK-Vault`
 - Right-edge launcher gesture into the control centre
+- Optional daily update checks with a pinned manifest and mandatory APK SHA-256 verification
 
 ## Security model
 
@@ -38,6 +41,8 @@ Copy `config.properties.example` to that path and edit it locally. Keep remote s
 Mail access is metadata-only through Android's notification listener: sender, subject and timestamp. WhatsApp processing is limited to notification text that Android has already decrypted and displayed; only explicit task-like phrases are captured. DAAK NODE never sends mail or WhatsApp messages.
 
 daakREMEMBER traffic uses its existing HTTP snapshot/merge protocol on TCP 45831. The companion Mac service rejects non-Tailnet source addresses; Tailscale supplies the encrypted transport. DAAK NODE does not expose a new listening port.
+
+Remote desktop targets are kept in Android private preferences and handed to RustDesk without embedding passwords. DAAK Inbox does not write a dictated item anywhere until the user selects a destination in its confirmation dialog.
 
 The Android package name remains `com.firat.node` so upgrades preserve launcher state, permissions and private preferences. The old `/sdcard/Download/firat-node/config.properties` path remains a read-only compatibility fallback.
 
@@ -62,6 +67,7 @@ The build uses only Android SDK command-line tools. The generated APK is debug-s
 - [daakREMEMBER](https://github.com/benfirad/daakREMEMBER)
 - [Obsidian](https://github.com/obsidianmd/obsidian-releases)
 - [FUTO Voice Input](https://github.com/futo-org/voice-input)
+- [RustDesk](https://github.com/rustdesk/rustdesk)
 
 ## Platform note
 
