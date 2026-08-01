@@ -888,7 +888,7 @@ public final class MainActivity extends Activity {
                 box(c, r, 12, panel, line); type(5.4f, soft, true); center(c, names[i], r.centerX(), dp(575));
                 addHit(r, actions[i]);
             }
-            type(6.5f, ghost, false); c.drawText("SWIPE DOWN → NODE CONTROL", left, dp(613), paint);
+            type(6.5f, ghost, false); c.drawText("TOP ↓ CONTROL  •  BOTTOM ↑ HOME", left, dp(613), paint);
         }
 
         void drawHomeLandscape(Canvas c) {
@@ -1613,6 +1613,7 @@ public final class MainActivity extends Activity {
                 return true;
             }
             if (event.getAction() != MotionEvent.ACTION_UP) return true;
+            if (downY > getHeight() - dp(115) && downY - y > dp(65)) { showMode(HOME); return true; }
             if (downX > getWidth() - dp(24) && downX - x > dp(65)) { showMode(CONTROL); return true; }
             if (downY < dp(58) && y - downY > dp(55)) { showMode(CONTROL); return true; }
             if (moved) return true;

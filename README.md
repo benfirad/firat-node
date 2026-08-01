@@ -27,6 +27,7 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - One-way daakREMEMBER task export into `DAAK-Vault/daakREMEMBER.md` for Obsidian
 - Obsidian deep link into a local `DAAK-Vault`
 - Right-edge launcher gesture into the control centre
+- Bottom-edge upward gesture that always returns to the DAAK home screen
 - One-tap Fossify Clock alarms and battery-light Plees sleep tracking from the control centre
 - Optional daily update checks with a pinned manifest and mandatory APK SHA-256 verification
 
