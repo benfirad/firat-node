@@ -19,13 +19,14 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Chrome Remote Desktop hub for the Google-account device list and touch-friendly remote control
 - Biometric-gated Lolie/Mac Wake-on-LAN and key-only SSH shutdown controls
 - Google Calendar Provider agenda with a read-only launcher view and an Obsidian Markdown mirror
+- Weather-country public/special days merged into the agenda from a weekly Nager.Date cache; no silent cloud-calendar writes
 - Gmail + Thunderbird notification summaries at 07:30 and every hour
-- Unified music hub for Auxio local playback plus official YouTube Music and Spotify apps
+- Unified MediaSession controls and source chooser for Auxio, YouTube Music and Spotify; Auxio remains the full-offline library for user-owned files
 - Local sender/spam filters; the launcher never sends email
 - Open-Meteo current weather using coarse device location
 - Adaptive 2/3/5-minute Lolie reconnect backoff
 - Ten-minute expiry for mail metadata viewed inside the launcher
-- Native Tailnet integration with daakREMEMBER for reading and quick-capturing notes
+- Native Tailnet integration with daakREMEMBER for reading, adding, editing, completing, deleting and undoing deleted notes
 - Opt-in, keyword-limited WhatsApp notification-to-task capture; never sends messages
 - Official WhatsApp companion-device setup, so the node can join an existing account by QR without its own SIM
 - On-device Turkish dictation through Android's speech-recognition contract (tested with FUTO Voice Input)
@@ -37,7 +38,7 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Right-edge launcher gesture into the control centre
 - Bottom-edge upward gesture that always returns to the DAAK home screen
 - Android HOME intents reset the launcher to its real home view, including the system bottom-swipe gesture
-- Built-in three-option notification-sound chooser with immediate preview
+- Three normalized, embedded notification tones with immediate preview and a versioned high-importance Android channel
 - Kurek files download over encrypted SMB3 and open in the installed Android document viewer
 - Scrollable Kurek folders with path-stable live refreshes
 - One-tap Fossify Clock alarms and battery-light Plees sleep tracking from the control centre
@@ -45,8 +46,9 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Two-line temperature, apparent-temperature and condition display without clipped weather text
 - Built-in notification-access shortcut plus safer mail-cache expiry that preserves messages arriving after a panel was viewed
 - Empty-folder-safe Kurek navigation and atomic file downloads that never expose partial SMB files
-- Fail-closed Magisk SSH firewall: port 8022 accepts only loopback and Tailscale `tun*` traffic, with password and forwarding disabled
-- On-device `daak-selftest` command for sanitized firewall, Tailnet, Codex SSH, daakREMEMBER, Kurek TCP and browser-bridge diagnostics
+- Fail-closed Magisk firewall: SSH 8022 and opt-in secure ADB 5555 accept only loopback and Tailscale `tun*` traffic
+- Chrome Remote Desktop from the phone to computers, plus account-free scrcpy control from the Mac to the phone over Tailscale
+- On-device `daak-selftest` command for sanitized firewall, remote ADB, Tailnet, Codex SSH, daakREMEMBER, Kurek TCP and browser-bridge diagnostics
 - S9 Lilac Purple OLED palette, animated press feedback and inertial app/disk/intelligence-panel scrolling
 - Two-row portrait pinned grid plus first-class mail, WhatsApp task and daakREMEMBER cards on the home screen
 - Native DAAK intelligence panels replace Samsung-styled mail, WhatsApp and Remember summary dialogs
@@ -69,6 +71,10 @@ The Kurek browser uses SMB3 over the private Tailnet. Its credential file lives 
 daakREMEMBER traffic uses its existing HTTP snapshot/merge protocol on TCP 45831. The companion Mac service rejects non-Tailnet source addresses; Tailscale supplies the encrypted transport. DAAK NODE does not expose a new listening port.
 
 Chrome Remote Desktop authentication and device selection stay inside Google's official Android app; DAAK NODE stores no remote-device IDs or remote desktop passwords. DAAK Inbox does not write a dictated item anywhere until the user selects a destination in its confirmation dialog.
+
+Mac-to-phone control uses Android's authorized ADB key plus the Tailnet-only firewall. Run `companion/macos/daak-phone`; it discovers the online Galaxy S9+ through the local Tailscale CLI and launches scrcpy. Port 5555 is never accepted from Wi-Fi, cellular or the public internet. Remove `/data/adb/daak-remote-adb.enabled` and restart the Magisk service to disable it.
+
+Official YouTube Music and Spotify offline downloads remain inside their own applications. They are not copied into Auxio because those private app stores are encrypted and service-controlled; DAAK only provides shared playback controls and safe source switching.
 
 The Android package name remains `com.firat.node` so upgrades preserve launcher state, permissions and private preferences. The old `/sdcard/Download/firat-node/config.properties` path remains a read-only compatibility fallback.
 

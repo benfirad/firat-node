@@ -1,6 +1,7 @@
 #!/system/bin/sh
 
-# Magisk late_start service: keep Termux sshd private to loopback + Tailscale.
+# Magisk late_start service: keep Termux sshd and optional remote ADB private to
+# loopback + Tailscale. Android secure ADB still requires an authorized host key.
 # The loop is intentionally tiny and repairs rules after Android network resets.
 pidfile=/data/adb/daak-sshd-firewall.pid
 old_pid=$(cat "$pidfile" 2>/dev/null || printf 0)
@@ -14,8 +15,10 @@ fi
 
 (
     chain=DAAK_SSHD_INPUT
+    remote_adb_flag=/data/adb/daak-remote-adb.enabled
     termux_home=/data/data/com.termux/files/home
     heartbeat="$termux_home/.config/daak/sshd-firewall.ready"
+    bitchat_tick=4
     while true; do
         healthy=1
         saw_tool=0
@@ -27,8 +30,10 @@ fi
             "$tool" -w -A "$chain" -i lo -j ACCEPT || healthy=0
             "$tool" -w -A "$chain" -i tun+ -j ACCEPT || healthy=0
             "$tool" -w -A "$chain" -j DROP || healthy=0
-            "$tool" -w -C INPUT -p tcp --dport 8022 -j "$chain" 2>/dev/null ||
-                "$tool" -w -I INPUT 1 -p tcp --dport 8022 -j "$chain" || healthy=0
+            for private_port in 8022 5555; do
+                "$tool" -w -C INPUT -p tcp --dport "$private_port" -j "$chain" 2>/dev/null ||
+                    "$tool" -w -I INPUT 1 -p tcp --dport "$private_port" -j "$chain" || healthy=0
+            done
         done
         [ "$saw_tool" -eq 1 ] || healthy=0
         mkdir -p "$termux_home/.config/daak"
@@ -47,8 +52,33 @@ fi
         if [ "$healthy" -ne 1 ]; then
             rm -f "$heartbeat" "$heartbeat.tmp"
             pkill -x sshd 2>/dev/null || true
+            if [ "$(getprop service.adb.tcp.port)" = "5555" ]; then
+                setprop service.adb.tcp.port -1
+                stop adbd; start adbd
+            fi
         else
             rm -f /sdcard/Download/daak-node/sshd-firewall.ready
+            if [ -f "$remote_adb_flag" ] && [ "$(getprop service.adb.tcp.port)" != "5555" ]; then
+                setprop service.adb.tcp.port 5555
+                stop adbd; start adbd
+            elif [ ! -f "$remote_adb_flag" ] && [ "$(getprop service.adb.tcp.port)" = "5555" ]; then
+                setprop service.adb.tcp.port -1
+                stop adbd; start adbd
+            fi
+        fi
+        bitchat_tick=$((bitchat_tick + 1))
+        if [ "$bitchat_tick" -ge 5 ]; then
+            if [ "$(getprop sys.user.0.ce_available)" = "true" ]; then
+                bitchat_tick=0
+                if ! pidof com.bitchat.droid >/dev/null 2>&1 &&
+                        pm path com.bitchat.droid >/dev/null 2>&1; then
+                    am start-foreground-service -a com.bitchat.android.service.START \
+                        -n com.bitchat.droid/com.bitchat.android.service.MeshForegroundService \
+                        >/dev/null 2>&1 || true
+                fi
+            else
+                bitchat_tick=4
+            fi
         fi
         sleep 60
     done

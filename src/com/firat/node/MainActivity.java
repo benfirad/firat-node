@@ -8,6 +8,9 @@ import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.app.WallpaperManager;
 import android.content.ActivityNotFoundException;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.ComponentName;
 import android.content.ContentUris;
 import android.content.Context;
 import android.content.Intent;
@@ -28,8 +31,14 @@ import android.hardware.biometrics.BiometricPrompt;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
+import android.location.Address;
+import android.location.Geocoder;
 import android.media.Ringtone;
 import android.media.RingtoneManager;
+import android.media.MediaMetadata;
+import android.media.session.MediaController;
+import android.media.session.MediaSessionManager;
+import android.media.session.PlaybackState;
 import android.os.BatteryManager;
 import android.os.Bundle;
 import android.os.CancellationSignal;
@@ -70,6 +79,7 @@ import java.net.URLEncoder;
 import java.nio.charset.Charset;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
@@ -82,7 +92,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public final class MainActivity extends Activity {
-    private static final String BUILD_VERSION = "6.7.0";
+    private static final String BUILD_VERSION = "6.8.0";
     private static final int TERMUX_PERMISSION_REQUEST = 73;
     private static final int CALENDAR_PERMISSION_REQUEST = 74;
     private static final int LOCATION_PERMISSION_REQUEST = 75;
@@ -105,6 +115,7 @@ public final class MainActivity extends Activity {
         setContentView(nodeView);
         applyBlackWallpapers();
         removeLegacyRemoteState();
+        NodeStore.migrateLoudSound(this);
         NodeStore.schedule(this);
         ensureTermuxPermission();
         if (checkSelfPermission("com.termux.permission.RUN_COMMAND") == PackageManager.PERMISSION_GRANTED) {
@@ -392,6 +403,12 @@ public final class MainActivity extends Activity {
         AppEntry(String label, String packageName) { this.label = label; this.packageName = packageName; }
     }
 
+    private static final class AgendaEntry {
+        final long when;
+        final String text;
+        AgendaEntry(long when, String text) { this.when = when; this.text = text; }
+    }
+
     private static final class Hit {
         final RectF rect;
         final String action;
@@ -426,6 +443,10 @@ public final class MainActivity extends Activity {
         final List<AppEntry> shownApps = new ArrayList<AppEntry>();
         final List<String> diskItems = new ArrayList<String>();
         final List<String> rememberItems = new ArrayList<String>();
+        final List<String> rememberIds = new ArrayList<String>();
+        final List<String> rememberTexts = new ArrayList<String>();
+        final List<Boolean> rememberDone = new ArrayList<Boolean>();
+        final List<AgendaEntry> holidayEntries = new ArrayList<AgendaEntry>();
         String diskPath = DISK_ROOT;
         int mode = HOME;
         String query = "";
@@ -436,6 +457,8 @@ public final class MainActivity extends Activity {
         String whatsAppLine = "Görev bildirimi bekleniyor";
         String weatherCity = "";
         String rememberLine = "SYNCING WITH MAC...";
+        String mediaTitle = "Aktif oynatma yok", mediaSource = "AUXIO OFFLINE READY";
+        String holidayCountry = "";
         String diskMessage = "Cached index not loaded";
         long diskRequestToken;
         boolean diskLoading;
@@ -450,7 +473,7 @@ public final class MainActivity extends Activity {
         long mailViewedAt;
         float burnX, burnY;
         long lastInteraction = System.currentTimeMillis();
-        long lastWeatherRefresh, nextDiskRetry, lastObsidianSync, lastCalendarRefresh;
+        long lastWeatherRefresh, nextDiskRetry, lastObsidianSync, lastCalendarRefresh, lastHolidayRefresh;
         int diskRetryStep;
         boolean active, destroyed, statusRefreshRunning;
         LocationManager pendingLocationManager;
@@ -490,8 +513,10 @@ public final class MainActivity extends Activity {
             super(context);
             contentScroller = new OverScroller(context);
             setBackgroundColor(Color.BLACK);
+            holidayCountry = getSharedPreferences(NodeStore.PREFS, 0).getString("holiday_country", "");
             reloadApps();
             refreshCalendar();
+            refreshHolidays(false);
             refreshWeather(false);
         }
 
@@ -714,20 +739,41 @@ public final class MainActivity extends Activity {
                 try {
                     JSONObject snapshot = new JSONObject(new String(rememberRequest("GET", "/snapshot", null), "UTF-8"));
                     JSONArray items = snapshot.optJSONArray("items");
+                    final ArrayList<JSONObject> active = new ArrayList<JSONObject>();
                     final ArrayList<String> activeItems = new ArrayList<String>();
+                    final ArrayList<String> activeIds = new ArrayList<String>();
+                    final ArrayList<String> activeTexts = new ArrayList<String>();
+                    final ArrayList<Boolean> activeDone = new ArrayList<Boolean>();
                     int open = 0;
                     if (items != null) for (int i = 0; i < items.length(); i++) {
                         JSONObject item = items.optJSONObject(i);
                         if (item == null || !item.isNull("deletedAt")) continue;
                         String text = item.optString("text", "").trim();
                         if (!item.optBoolean("isDone", false)) open++;
-                        if (text.length() > 0 && activeItems.size() < 12)
-                            activeItems.add((item.optBoolean("isDone", false) ? "✓ " : "• ") + text);
+                        if (text.length() > 0) active.add(item);
+                    }
+                    Collections.sort(active, (left, right) -> {
+                        boolean leftDone = left.optBoolean("isDone", false);
+                        boolean rightDone = right.optBoolean("isDone", false);
+                        if (leftDone != rightDone) return leftDone ? 1 : -1;
+                        return Double.compare(right.optDouble("updatedAt", 0), left.optDouble("updatedAt", 0));
+                    });
+                    for (int i = 0; i < active.size() && i < 50; i++) {
+                        JSONObject item = active.get(i);
+                        String text = item.optString("text", "").trim();
+                        boolean done = item.optBoolean("isDone", false);
+                        activeItems.add((done ? "✓ " : "• ") + text);
+                        activeIds.add(item.optString("id", ""));
+                        activeTexts.add(text);
+                        activeDone.add(done);
                     }
                     final int openFinal = open;
                     handler.post(() -> {
                         if (destroyed) return;
                         rememberItems.clear(); rememberItems.addAll(activeItems); rememberOpenCount = openFinal;
+                        rememberIds.clear(); rememberIds.addAll(activeIds);
+                        rememberTexts.clear(); rememberTexts.addAll(activeTexts);
+                        rememberDone.clear(); rememberDone.addAll(activeDone);
                         rememberLine = activeItems.isEmpty() ? "NOT YOK • TAP TO CAPTURE" : openFinal + " OPEN • " + activeItems.get(0).substring(2);
                         if (mode == INFO_PANEL && panelKind.equals("REMEMBER")) {
                             panelItems.clear(); panelItems.addAll(activeItems);
@@ -739,6 +785,101 @@ public final class MainActivity extends Activity {
                     handler.post(() -> { if (!destroyed) { rememberLine = "MAC SYNC OFFLINE"; invalidate(); } });
                 }
             }, "node-remember-read").start();
+        }
+
+        void showRememberItemMenu(final int index) {
+            if (index < 0 || index >= rememberIds.size() || index >= rememberTexts.size()) return;
+            final String id = rememberIds.get(index);
+            final String text = rememberTexts.get(index);
+            final boolean done = rememberDone.get(index);
+            final String[] options = {done ? "YENİDEN AÇ" : "TAMAMLANDI", "DÜZENLE", "KOPYALA", "SİL"};
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("REMEMBER // " + trimText(text, 38))
+                    .setItems(options, (d, which) -> {
+                        if (which == 0) mutateRememberNote(id, "done", text, !done, false);
+                        else if (which == 1) showRememberEdit(id, text, done);
+                        else if (which == 2) copyRememberText(text);
+                        else confirmRememberDelete(id, text, done);
+                    })
+                    .setNegativeButton("KAPAT", null).create();
+            showDaakDialog(dialog);
+        }
+
+        void showRememberEdit(final String id, String text, final boolean done) {
+            final EditText input = new EditText(MainActivity.this);
+            input.setSingleLine(false); input.setMinLines(3); input.setText(text); input.setSelection(text.length());
+            styleInput(input);
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("REMEMBER // DÜZENLE")
+                    .setView(input)
+                    .setPositiveButton("KAYDET", (d, which) -> {
+                        String edited = input.getText().toString().trim();
+                        if (edited.length() == 0) toast("Boş not kaydedilmedi");
+                        else mutateRememberNote(id, "edit", edited, done, false);
+                    })
+                    .setNegativeButton("İPTAL", null).create();
+            showDaakDialog(dialog);
+        }
+
+        void copyRememberText(String text) {
+            ClipboardManager clipboard = (ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
+            if (clipboard != null) clipboard.setPrimaryClip(ClipData.newPlainText("daakREMEMBER", text));
+            toast("Not panoya kopyalandı");
+        }
+
+        void confirmRememberDelete(final String id, final String text, final boolean done) {
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("REMEMBER // SİL")
+                    .setMessage("Bu madde tüm daakREMEMBER cihazlarından silinsin mi?\n\n" + text)
+                    .setPositiveButton("SİL", (d, which) -> mutateRememberNote(id, "delete", text, done, true))
+                    .setNegativeButton("İPTAL", null).create();
+            showDaakDialog(dialog);
+        }
+
+        void mutateRememberNote(final String id, final String operation, final String text,
+                                final boolean done, final boolean offerUndo) {
+            message = "REMEMBER // " + operation.toUpperCase(Locale.US); invalidate();
+            new Thread(() -> {
+                try {
+                    JSONObject snapshot = new JSONObject(new String(rememberRequest("GET", "/snapshot", null), "UTF-8"));
+                    JSONArray items = snapshot.optJSONArray("items");
+                    if (items == null) throw new IllegalStateException("empty snapshot");
+                    JSONObject selected = null;
+                    for (int i = 0; i < items.length(); i++) {
+                        JSONObject candidate = items.optJSONObject(i);
+                        if (candidate != null && id.equalsIgnoreCase(candidate.optString("id", ""))) {
+                            selected = candidate; break;
+                        }
+                    }
+                    if (selected == null) throw new IllegalStateException("note missing");
+                    double now = System.currentTimeMillis() / 1000.0 - 978307200.0;
+                    now = Math.max(now, selected.optDouble("updatedAt", 0) + 0.001);
+                    if (operation.equals("edit")) selected.put("text", text);
+                    if (operation.equals("done")) selected.put("isDone", done);
+                    if (operation.equals("delete")) selected.put("deletedAt", now);
+                    else if (operation.equals("restore")) selected.put("deletedAt", JSONObject.NULL);
+                    selected.put("updatedAt", now);
+                    JSONObject envelope = new JSONObject(); envelope.put("deviceName", "DAAK NODE"); envelope.put("items", items);
+                    rememberRequest("POST", "/merge", envelope.toString().getBytes("UTF-8"));
+                    handler.post(() -> {
+                        if (destroyed) return;
+                        message = operation.equals("delete") ? "REMEMBER // DELETED" : "REMEMBER // SYNCED";
+                        syncObsidian(true); refreshRemember(); invalidate();
+                        if (offerUndo) {
+                            AlertDialog undo = new AlertDialog.Builder(MainActivity.this)
+                                    .setTitle("REMEMBER // SİLİNDİ")
+                                    .setMessage(trimText(text, 120))
+                                    .setPositiveButton("GERİ AL", (d, which) -> mutateRememberNote(id, "restore", text, done, false))
+                                    .setNegativeButton("TAMAM", null).create();
+                            showDaakDialog(undo);
+                        }
+                    });
+                } catch (Exception error) {
+                    handler.post(() -> {
+                        if (!destroyed) { message = "REMEMBER // SYNC FAILED"; invalidate(); toast("Mac/TailSync erişilemiyor; değişiklik yapılmadı"); }
+                    });
+                }
+            }, "node-remember-mutate").start();
         }
 
         void addRememberNote(final String rawText) {
@@ -765,30 +906,36 @@ public final class MainActivity extends Activity {
         }
 
         void refreshCalendar() {
-            if (checkSelfPermission("android.permission.READ_CALENDAR") != PackageManager.PERMISSION_GRANTED) {
-                agendaOne = "Tap to grant calendar access"; agendaTwo = ""; invalidate(); return;
-            }
+            final boolean calendarAllowed = checkSelfPermission("android.permission.READ_CALENDAR") == PackageManager.PERMISSION_GRANTED;
             new Thread(() -> {
+                ArrayList<AgendaEntry> entries = new ArrayList<AgendaEntry>();
                 ArrayList<String> rows = new ArrayList<String>();
                 long begin = System.currentTimeMillis(), end = begin + 30L * 24L * 60L * 60L * 1000L;
-                Uri.Builder builder = CalendarContract.Instances.CONTENT_URI.buildUpon();
-                ContentUris.appendId(builder, begin); ContentUris.appendId(builder, end);
                 Cursor cursor = null;
                 try {
-                    cursor = getContentResolver().query(builder.build(), new String[]{
-                            CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN,
-                            CalendarContract.Instances.EVENT_LOCATION}, null, null,
-                            CalendarContract.Instances.BEGIN + " ASC");
-                    while (cursor != null && cursor.moveToNext() && rows.size() < 50) {
-                        String at = new SimpleDateFormat("dd MMM HH:mm", Locale.getDefault()).format(new Date(cursor.getLong(1)));
-                        String title = cursor.getString(0) == null ? "Etkinlik" : cursor.getString(0).replace('\n', ' ').replace('|', '/');
-                        String location = cursor.getString(2);
-                        rows.add(at + " • " + title + (location == null || location.trim().length() == 0 ? "" : " @ " + location.replace('\n', ' ').replace('|', '/')));
+                    if (calendarAllowed) {
+                        Uri.Builder builder = CalendarContract.Instances.CONTENT_URI.buildUpon();
+                        ContentUris.appendId(builder, begin); ContentUris.appendId(builder, end);
+                        cursor = getContentResolver().query(builder.build(), new String[]{
+                                CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN,
+                                CalendarContract.Instances.EVENT_LOCATION}, null, null,
+                                CalendarContract.Instances.BEGIN + " ASC");
+                        while (cursor != null && cursor.moveToNext()) {
+                            long when = cursor.getLong(1);
+                            String at = new SimpleDateFormat("dd MMM HH:mm", Locale.getDefault()).format(new Date(when));
+                            String title = cursor.getString(0) == null ? "Etkinlik" : cursor.getString(0).replace('\n', ' ').replace('|', '/');
+                            String location = cursor.getString(2);
+                            entries.add(new AgendaEntry(when, at + " • " + title +
+                                    (location == null || location.trim().length() == 0 ? "" : " @ " + location.replace('\n', ' ').replace('|', '/'))));
+                        }
                     }
                 } catch (Exception ignored) { }
                 finally { if (cursor != null) cursor.close(); }
+                synchronized (holidayEntries) { entries.addAll(holidayEntries); }
+                Collections.sort(entries, (left, right) -> Long.compare(left.when, right.when));
+                for (int i = 0; i < entries.size() && i < 50; i++) rows.add(entries.get(i).text);
                 exportCalendarMarkdown(rows);
-                final String one = rows.size() > 0 ? rows.get(0) : "Yaklaşan etkinlik yok";
+                final String one = rows.size() > 0 ? rows.get(0) : calendarAllowed ? "Yaklaşan etkinlik yok" : "Tap to grant calendar access";
                 final String two = rows.size() > 1 ? rows.get(1) : "";
                 handler.post(() -> {
                     if (destroyed) return;
@@ -806,7 +953,9 @@ public final class MainActivity extends Activity {
                 if (!vault.exists() && !vault.mkdirs()) return;
                 StringBuilder body = new StringBuilder();
                 body.append("# DAAK Calendar\n\n");
-                body.append("> Google Calendar'ın Android takvim sağlayıcısından DAAK NODE tarafından salt okunur oluşturulur.\n\n");
+                body.append("> Google Calendar salt okunur etkinlikleri + hava durumu ülkesine göre özel günler.\n");
+                body.append("> Konumun yalnızca ülke kodu yerel olarak saklanır; özel gün önbelleği offline kullanılabilir.\n\n");
+                if (holidayCountry.length() > 0) body.append("Özel gün ülkesi: **").append(holidayCountry).append("**\n\n");
                 body.append("Son güncelleme: ").append(new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(new Date())).append("\n\n");
                 if (rows.isEmpty()) body.append("- Yaklaşan etkinlik yok.\n");
                 else for (String row : rows) body.append("- ").append(row).append("\n");
@@ -815,6 +964,91 @@ public final class MainActivity extends Activity {
                 if (target.exists() && !target.delete()) return;
                 if (!temp.renameTo(target)) temp.delete();
             } catch (Exception ignored) { temp.delete(); }
+        }
+
+        void setHolidayCountry(String rawCountry) {
+            String country = rawCountry == null ? "" : rawCountry.trim().toUpperCase(Locale.US);
+            if (!country.matches("[A-Z]{2}")) return;
+            if (country.equals(holidayCountry)) return;
+            holidayCountry = country;
+            getSharedPreferences(NodeStore.PREFS, 0).edit().putString("holiday_country", country).apply();
+            lastHolidayRefresh = 0L;
+            refreshHolidays(true);
+        }
+
+        void detectHolidayCountry(double latitude, double longitude) {
+            try {
+                Geocoder geocoder = new Geocoder(MainActivity.this, Locale.getDefault());
+                List<Address> results = geocoder.getFromLocation(latitude, longitude, 1);
+                if (results != null && !results.isEmpty()) setHolidayCountry(results.get(0).getCountryCode());
+            } catch (Exception ignored) { }
+        }
+
+        void refreshHolidays(boolean force) {
+            final String country = holidayCountry.length() == 0
+                    ? getSharedPreferences(NodeStore.PREFS, 0).getString("holiday_country", "") : holidayCountry;
+            if (!country.matches("[A-Z]{2}")) return;
+            SharedPreferences prefs = getSharedPreferences(NodeStore.PREFS, 0);
+            long cachedAt = prefs.getLong("holiday_cache_at_" + country, 0L);
+            String cached = prefs.getString("holiday_cache_" + country, "");
+            if (!force && cached.length() > 2 && System.currentTimeMillis() - cachedAt < 7L * 24L * 60L * 60L * 1000L) {
+                applyHolidayJson(country, cached, false); return;
+            }
+            new Thread(() -> {
+                try {
+                    Calendar calendar = Calendar.getInstance();
+                    int year = calendar.get(Calendar.YEAR);
+                    JSONArray combined = new JSONArray();
+                    for (int selectedYear = year; selectedYear <= year + 1; selectedYear++) {
+                        JSONArray fetched = readJsonArray("https://date.nager.at/api/v4/Holidays/" + country + "/" + selectedYear);
+                        for (int i = 0; i < fetched.length(); i++) combined.put(fetched.getJSONObject(i));
+                    }
+                    prefs.edit().putString("holiday_cache_" + country, combined.toString())
+                            .putLong("holiday_cache_at_" + country, System.currentTimeMillis()).apply();
+                    applyHolidayJson(country, combined.toString(), true);
+                } catch (Exception error) {
+                    if (cached.length() > 2) applyHolidayJson(country, cached, false);
+                }
+            }, "node-holidays").start();
+        }
+
+        JSONArray readJsonArray(String address) throws Exception {
+            HttpURLConnection connection = (HttpURLConnection)new URL(address).openConnection();
+            try {
+                connection.setConnectTimeout(4000); connection.setReadTimeout(5000);
+                if (connection.getResponseCode() != 200) throw new IllegalStateException("HTTP " + connection.getResponseCode());
+                InputStream input = connection.getInputStream(); byte[] buffer = new byte[4096]; int count;
+                java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
+                while ((count = input.read(buffer)) > 0) output.write(buffer, 0, count);
+                input.close(); return new JSONArray(new String(output.toByteArray(), "UTF-8"));
+            } finally { connection.disconnect(); }
+        }
+
+        void applyHolidayJson(final String country, String raw, boolean refreshed) {
+            try {
+                JSONArray values = new JSONArray(raw);
+                ArrayList<AgendaEntry> upcoming = new ArrayList<AgendaEntry>();
+                long begin = System.currentTimeMillis() - 12L * 60L * 60L * 1000L;
+                long end = System.currentTimeMillis() + 30L * 24L * 60L * 60L * 1000L;
+                SimpleDateFormat parser = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
+                SimpleDateFormat label = new SimpleDateFormat("dd MMM", Locale.getDefault());
+                for (int i = 0; i < values.length(); i++) {
+                    JSONObject holiday = values.optJSONObject(i);
+                    if (holiday == null) continue;
+                    Date date = parser.parse(holiday.optString("date", ""));
+                    if (date == null || date.getTime() < begin || date.getTime() > end) continue;
+                    String name = holiday.optString("name", "Special day").replace('\n', ' ').replace('|', '/');
+                    upcoming.add(new AgendaEntry(date.getTime(), label.format(date) + " • " + country + " SPECIAL • " + name));
+                }
+                Collections.sort(upcoming, (left, right) -> Long.compare(left.when, right.when));
+                handler.post(() -> {
+                    if (destroyed) return;
+                    synchronized (holidayEntries) { holidayEntries.clear(); holidayEntries.addAll(upcoming); }
+                    lastHolidayRefresh = System.currentTimeMillis();
+                    refreshCalendar();
+                    if (refreshed) { message = "CALENDAR // " + country + " SPECIAL DAYS"; invalidate(); }
+                });
+            } catch (Exception ignored) { }
         }
 
         void refreshWeather(boolean force) {
@@ -866,6 +1100,7 @@ public final class MainActivity extends Activity {
             new Thread(() -> {
                 HttpURLConnection connection = null;
                 try {
+                    detectHolidayCountry(lat, lon);
                     URL url = new URL("https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon + "&current=temperature_2m,apparent_temperature,weather_code&timezone=auto");
                     connection = (HttpURLConnection)url.openConnection(); connection.setConnectTimeout(3500); connection.setReadTimeout(3500);
                     InputStream input = connection.getInputStream(); StringBuilder json = new StringBuilder(); byte[] buffer = new byte[2048]; int count;
@@ -895,7 +1130,9 @@ public final class MainActivity extends Activity {
                     while ((count = input.read(buffer)) > 0) json.append(new String(buffer, 0, count, "UTF-8")); input.close();
                     JSONObject result = new JSONObject(json.toString()).getJSONArray("results").getJSONObject(0);
                     Location location = new Location("city"); location.setLatitude(result.getDouble("latitude")); location.setLongitude(result.getDouble("longitude"));
-                    weatherCity = result.optString("name", city); fetchWeather(location);
+                    weatherCity = result.optString("name", city);
+                    setHolidayCountry(result.optString("country_code", ""));
+                    fetchWeather(location);
                 } catch (Exception error) { handler.post(() -> {
                     if (!destroyed) { weather = "CITY NOT FOUND"; weatherDetails = ""; invalidate(); }
                 }); }
@@ -1040,6 +1277,11 @@ public final class MainActivity extends Activity {
         }
 
         void animateHit(final Hit hit) {
+            if (isDockAction(hit.action)) {
+                pressedRect = null; pressGlow = 0f;
+                handle(hit);
+                return;
+            }
             if (pressAnimator != null) pressAnimator.cancel();
             pressedRect = new RectF(hit.rect); pressGlow = 1f; invalidate();
             pressAnimator = ValueAnimator.ofFloat(1f, 0f);
@@ -1055,6 +1297,11 @@ public final class MainActivity extends Activity {
             });
             pressAnimator.start();
             handler.postDelayed(() -> { if (!destroyed) handle(hit); }, 70L);
+        }
+
+        boolean isDockAction(String action) {
+            return action.equals("HOME") || action.equals("APPS") || action.equals("CODEX")
+                    || action.equals("DISK") || action.equals("HELP");
         }
 
         void drawTopBar(Canvas c) {
@@ -1108,7 +1355,9 @@ public final class MainActivity extends Activity {
             type(6.1f, soft, false); c.drawText(trimText(weather, 24), climate.left + dp(10), dp(444), paint); addHit(climate, "WEATHER");
 
             RectF agenda = new RectF(left, dp(463), right, dp(513));
-            box(c, agenda, 12, panel, line); type(7, mint, true); c.drawText("GOOGLE CALENDAR // NEXT", agenda.left + dp(10), dp(481), paint);
+            box(c, agenda, 12, panel, line); type(7, mint, true);
+            c.drawText(holidayCountry.length() == 0 ? "GOOGLE CALENDAR // NEXT" : "CALENDAR + " + holidayCountry + " SPECIAL DAYS",
+                    agenda.left + dp(10), dp(481), paint);
             type(6.2f, soft, false); c.drawText(trimText(agendaOne, 49), agenda.left + dp(10), dp(502), paint); addHit(agenda, "CALENDAR");
 
             type(7, mintDim, true); c.drawText("// PINNED // 2 × 3", left, dp(535), paint);
@@ -1228,7 +1477,7 @@ public final class MainActivity extends Activity {
             if (panelKind.equals("MAIL")) return "SON 24 SAAT • GÖNDERME YETKİSİ YOK";
             if (panelKind.equals("WHATSAPP")) return NodeStore.whatsAppAutomationEnabled(MainActivity.this)
                     ? "ACTIONABLE ONLY • AUTO TASKS ON" : "AUTO TASKS OFF";
-            if (panelKind.equals("MUSIC")) return "AUXIO LOCAL • OFFICIAL STREAMING APPS";
+            if (panelKind.equals("MUSIC")) return "ACTIVE MEDIA SESSION • AUXIO/YT MUSIC";
             if (panelKind.startsWith("POWER_")) return "TAILNET SSH • WAKE-ON-LAN";
             return rememberOpenCount + " AÇIK NOT • TAILNET ONLY";
         }
@@ -1236,14 +1485,14 @@ public final class MainActivity extends Activity {
         String panelPrimaryLabel() {
             if (panelKind.equals("MAIL")) return "GMAIL";
             if (panelKind.equals("WHATSAPP")) return "WHATSAPP";
-            if (panelKind.equals("MUSIC")) return "YT MUSIC";
+            if (panelKind.equals("MUSIC")) return "PLAY/PAUSE";
             if (panelKind.startsWith("POWER_")) return "WAKE";
             return "NEW NOTE";
         }
 
         String panelSecondaryLabel() {
             if (panelKind.equals("REMEMBER")) return "REFRESH";
-            if (panelKind.equals("MUSIC")) return "AUXIO";
+            if (panelKind.equals("MUSIC")) return "NEXT";
             if (panelKind.startsWith("POWER_")) return "SHUTDOWN";
             return "FILTER";
         }
@@ -1270,6 +1519,8 @@ public final class MainActivity extends Activity {
                 box(c, row, 10, i == 0 ? panelHot : Color.BLACK, i == 0 ? mintDim : line);
                 type(6, mintDim, true); c.drawText(String.format(Locale.US, "%02d", i + 1), row.left + dp(9), y + dp(18), paint);
                 type(7.2f, soft, false); c.drawText(trimText(panelItems.get(i), 44), row.left + dp(36), y + dp(28), paint);
+                if (panelKind.equals("REMEMBER") && row.top >= listTop && row.bottom <= actionTop - dp(8))
+                    addHit(row, "REMEMBER_ITEM:" + i);
             }
             c.restore();
 
@@ -1281,7 +1532,7 @@ public final class MainActivity extends Activity {
             RectF close = new RectF(left + buttonW * 2f + gap * 2f, actionTop, right, bottom);
             box(c, first, 12, panelHot, mintDim); type(6.5f, mint, true); center(c, primary, first.centerX(), first.centerY() + dp(2)); addHit(first, "PANEL_PRIMARY");
             box(c, second, 12, panel, line); type(6.5f, soft, true); center(c, secondary, second.centerX(), second.centerY() + dp(2)); addHit(second, "PANEL_SECONDARY");
-            String tertiary = panelKind.equals("MUSIC") ? "SPOTIFY" : "CLOSE";
+            String tertiary = panelKind.equals("MUSIC") ? "SOURCES" : "CLOSE";
             box(c, close, 12, panel, line); type(6.5f, soft, true); center(c, tertiary, close.centerX(), close.centerY() + dp(2));
             addHit(close, panelKind.equals("MUSIC") ? "PANEL_TERTIARY" : "PANEL_CLOSE");
         }
@@ -1298,8 +1549,8 @@ public final class MainActivity extends Activity {
             button(c, new RectF(left + dp(12), top + dp(91), left + side - dp(2), top + dp(144)), "OPEN", primary, "PRIVATE ACTION", true, "PANEL_PRIMARY");
             button(c, new RectF(left + dp(12), top + dp(152), left + side - dp(2), top + dp(205)), "TOOLS", panelSecondaryLabel(), "LOCAL SETTINGS", false, "PANEL_SECONDARY");
             button(c, new RectF(left + dp(12), top + dp(213), left + side - dp(2), bottom - dp(12)),
-                    panelKind.equals("MUSIC") ? "STREAM" : "BACK", panelKind.equals("MUSIC") ? "SPOTIFY" : "CLOSE",
-                    panelKind.equals("MUSIC") ? "OFFICIAL APP" : "RETURN HOME", false,
+                    panelKind.equals("MUSIC") ? "MUSIC" : "BACK", panelKind.equals("MUSIC") ? "SOURCES" : "CLOSE",
+                    panelKind.equals("MUSIC") ? "AUXIO / YT / SPOTIFY" : "RETURN HOME", false,
                     panelKind.equals("MUSIC") ? "PANEL_TERTIARY" : "PANEL_CLOSE");
             float rowH = dp(44);
             c.save(); c.clipRect(listLeft, top + dp(12), right - dp(12), bottom - dp(12));
@@ -1311,6 +1562,8 @@ public final class MainActivity extends Activity {
                 box(c, row, 9, i == 0 ? panelHot : Color.BLACK, i == 0 ? mintDim : line);
                 type(6, mintDim, true); c.drawText(String.format(Locale.US, "%02d", i + 1), row.left + dp(9), y + dp(17), paint);
                 type(7, soft, false); c.drawText(trimText(panelItems.get(i), 72), row.left + dp(38), y + dp(25), paint);
+                if (panelKind.equals("REMEMBER") && row.top >= top + dp(12) && row.bottom <= bottom - dp(12))
+                    addHit(row, "REMEMBER_ITEM:" + i);
             }
             c.restore();
         }
@@ -1755,7 +2008,14 @@ public final class MainActivity extends Activity {
                 RectF r = new RectF(left + i * cell, top, left + (i + 1) * cell, getHeight());
                 boolean active = (i == 0 && mode == HOME) || (i == 1 && mode == APPS) ||
                         (i == 2 && mode == CODEX_VIEW) || (i == 3 && mode == DISK_VIEW) || (i == 4 && mode == HELP);
-                type(7.5f, active ? mint : soft, true); center(c, labels[i], r.centerX(), top + dp(37)); addHit(r, actions[i]);
+                type(7.5f, active ? mint : soft, true); center(c, labels[i], r.centerX(), top + dp(34));
+                if (active) {
+                    float halfLine = Math.min(paint.measureText(labels[i]) * 0.58f, cell * 0.30f);
+                    paint.setStyle(Paint.Style.FILL); paint.setColor(mint);
+                    c.drawRoundRect(new RectF(r.centerX() - halfLine, top + dp(43),
+                            r.centerX() + halfLine, top + dp(45)), dp(1), dp(1), paint);
+                }
+                addHit(r, actions[i]);
             }
         }
 
@@ -1770,7 +2030,14 @@ public final class MainActivity extends Activity {
                 RectF r = new RectF(left + i * cell, top, left + (i + 1) * cell, getHeight());
                 boolean selected = (i == 0 && mode == HOME) || (i == 1 && mode == APPS) ||
                         (i == 2 && mode == CODEX_VIEW) || (i == 3 && mode == DISK_VIEW) || (i == 4 && mode == HELP);
-                type(7, selected ? mint : soft, true); center(c, labels[i], r.centerX(), top + dp(30)); addHit(r, actions[i]);
+                type(7, selected ? mint : soft, true); center(c, labels[i], r.centerX(), top + dp(27));
+                if (selected) {
+                    float halfLine = Math.min(paint.measureText(labels[i]) * 0.58f, cell * 0.30f);
+                    paint.setStyle(Paint.Style.FILL); paint.setColor(mint);
+                    c.drawRoundRect(new RectF(r.centerX() - halfLine, top + dp(35),
+                            r.centerX() + halfLine, top + dp(37)), dp(1), dp(1), paint);
+                }
+                addHit(r, actions[i]);
             }
         }
 
@@ -1957,11 +2224,70 @@ public final class MainActivity extends Activity {
 
         void showMusicPanel() {
             ArrayList<String> rows = new ArrayList<String>();
-            rows.add("YOUTUBE MUSIC • streaming + Premium offline downloads");
-            rows.add("AUXIO • private local music library");
-            rows.add("SPOTIFY • official app shortcut");
-            rows.add("YouTube downloads stay encrypted inside YouTube Music");
+            updateMediaStatus();
+            rows.add(mediaTitle);
+            rows.add(mediaSource);
+            rows.add("AUXIO • USER FILES • FULL OFFLINE");
+            rows.add("YT MUSIC DOWNLOADS • STAY INSIDE OFFICIAL APP");
             openInfoPanel("MUSIC", rows);
+        }
+
+        MediaController activeMediaController() {
+            try {
+                MediaSessionManager manager = (MediaSessionManager)getSystemService(MEDIA_SESSION_SERVICE);
+                if (manager == null) return null;
+                List<MediaController> sessions = manager.getActiveSessions(
+                        new ComponentName(MainActivity.this, MailNotificationListener.class));
+                MediaController fallback = null;
+                for (MediaController controller : sessions) {
+                    if (fallback == null) fallback = controller;
+                    PlaybackState state = controller.getPlaybackState();
+                    if (state != null && state.getState() == PlaybackState.STATE_PLAYING) return controller;
+                }
+                return fallback;
+            } catch (SecurityException ignored) { return null; }
+        }
+
+        void updateMediaStatus() {
+            MediaController controller = activeMediaController();
+            if (controller == null) {
+                mediaTitle = "Aktif oynatma yok"; mediaSource = "AUXIO OFFLINE READY"; return;
+            }
+            MediaMetadata metadata = controller.getMetadata();
+            String title = metadata == null ? "Aktif medya" : metadata.getString(MediaMetadata.METADATA_KEY_TITLE);
+            String artist = metadata == null ? "" : metadata.getString(MediaMetadata.METADATA_KEY_ARTIST);
+            mediaTitle = (artist == null || artist.trim().length() == 0 ? "" : artist + " • ")
+                    + (title == null || title.trim().length() == 0 ? "Aktif medya" : title);
+            try {
+                ApplicationInfo info = getPackageManager().getApplicationInfo(controller.getPackageName(), 0);
+                mediaSource = getPackageManager().getApplicationLabel(info).toString().toUpperCase(Locale.US);
+            } catch (Exception ignored) { mediaSource = controller.getPackageName(); }
+        }
+
+        void toggleMediaPlayback() {
+            MediaController controller = activeMediaController();
+            if (controller == null) { launchPackage("org.oxycblt.auxio"); return; }
+            PlaybackState state = controller.getPlaybackState();
+            if (state != null && state.getState() == PlaybackState.STATE_PLAYING) controller.getTransportControls().pause();
+            else controller.getTransportControls().play();
+            handler.postDelayed(this::showMusicPanel, 250L);
+        }
+
+        void skipMediaNext() {
+            MediaController controller = activeMediaController();
+            if (controller == null) { launchPackage("org.oxycblt.auxio"); return; }
+            controller.getTransportControls().skipToNext();
+            handler.postDelayed(this::showMusicPanel, 250L);
+        }
+
+        void showMusicSources() {
+            final String[] sources = {"AUXIO // TAM OFFLINE", "YOUTUBE MUSIC // RESMÎ OFFLINE", "SPOTIFY // RESMÎ"};
+            new AlertDialog.Builder(MainActivity.this).setTitle("MUSIC // SOURCES")
+                    .setItems(sources, (dialog, which) -> {
+                        if (which == 0) launchPackage("org.oxycblt.auxio");
+                        else if (which == 1) launchOrStore("com.google.android.apps.youtube.music");
+                        else launchOrStore("com.spotify.music");
+                    }).setNegativeButton("KAPAT", null).show();
         }
 
         void launchOrStore(String packageName) {
@@ -2031,25 +2357,7 @@ public final class MainActivity extends Activity {
                     .setNegativeButton("İPTAL", null).show();
         }
 
-        Uri findNotificationSound(String fileName) {
-            Cursor cursor = null;
-            Uri selected = null;
-            try {
-                cursor = getContentResolver().query(
-                        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                        new String[]{MediaStore.Audio.Media._ID, MediaStore.Audio.Media.DATA},
-                        MediaStore.Audio.Media.DISPLAY_NAME + "=?", new String[]{fileName}, null);
-                while (cursor != null && cursor.moveToNext()) {
-                    selected = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, cursor.getLong(0));
-                    String path = cursor.getString(1);
-                    if (path != null && path.contains("/Notifications/DAAK/")) break;
-                }
-            } catch (Exception ignored) { }
-            finally { if (cursor != null) cursor.close(); }
-            return selected;
-        }
-
-        void applyNotificationSound(String fileName, String label) {
+        void applyNotificationSound(String key, String label) {
             if (!Settings.System.canWrite(MainActivity.this)) {
                 try {
                     startActivity(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
@@ -2058,11 +2366,10 @@ public final class MainActivity extends Activity {
                 toast("DAAK NODE için sistem ayarı izni gerekli");
                 return;
             }
-            Uri sound = findNotificationSound(fileName);
-            if (sound == null) { toast("Ses dosyası bulunamadı: " + fileName); return; }
-            if (!Settings.System.putString(getContentResolver(), Settings.System.NOTIFICATION_SOUND, sound.toString())) {
+            if (!NodeStore.selectSound(MainActivity.this, key, true)) {
                 toast("Bildirim sesi değiştirilemedi"); return;
             }
+            Uri sound = NodeStore.soundUri(MainActivity.this, key);
             if (previewRingtone != null) previewRingtone.stop();
             previewRingtone = RingtoneManager.getRingtone(MainActivity.this, sound);
             if (previewRingtone != null) previewRingtone.play();
@@ -2071,11 +2378,11 @@ public final class MainActivity extends Activity {
         }
 
         void showNotificationSoundPanel() {
-            final String[] labels = {"Terminal Tick — kısa", "DAAK Pulse — yumuşak", "Deep Node — koyu"};
-            final String[] files = {"Terminal-Tick.ogg", "DAAK-Pulse.ogg", "Deep-Node.ogg"};
+            final String[] labels = {"Terminal Tick — yüksek/kısa", "DAAK Pulse — yüksek/yumuşak", "Deep Node — yüksek/koyu"};
+            final String[] keys = {"terminal", "pulse", "deep"};
             new AlertDialog.Builder(MainActivity.this)
                     .setTitle("DAAK // BİLDİRİM SESİ")
-                    .setItems(labels, (dialog, which) -> applyNotificationSound(files[which], labels[which]))
+                    .setItems(labels, (dialog, which) -> applyNotificationSound(keys[which], labels[which]))
                     .setNeutralButton("SİSTEM SESLERİ", (dialog, which) -> openSettings(Settings.ACTION_SOUND_SETTINGS))
                     .setNegativeButton("KAPAT", null).show();
         }
@@ -2108,7 +2415,7 @@ public final class MainActivity extends Activity {
         void panelPrimary() {
             if (panelKind.equals("MAIL")) launchOrStore("com.google.android.gm");
             else if (panelKind.equals("WHATSAPP")) launchPackage("com.whatsapp");
-            else if (panelKind.equals("MUSIC")) launchOrStore("com.google.android.apps.youtube.music");
+            else if (panelKind.equals("MUSIC")) toggleMediaPlayback();
             else if (panelKind.equals("POWER_LOLILE")) guarded(() -> runPower("lolile-wake"));
             else if (panelKind.equals("POWER_MAC")) guarded(() -> runPower("mac-wake"));
             else showRememberCapture();
@@ -2117,14 +2424,14 @@ public final class MainActivity extends Activity {
         void panelSecondary() {
             if (panelKind.equals("MAIL")) showMailFilters();
             else if (panelKind.equals("WHATSAPP")) showWhatsAppSettings();
-            else if (panelKind.equals("MUSIC")) launchPackage("org.oxycblt.auxio");
+            else if (panelKind.equals("MUSIC")) skipMediaNext();
             else if (panelKind.equals("POWER_LOLILE")) confirmShutdown("lolile");
             else if (panelKind.equals("POWER_MAC")) confirmShutdown("mac");
             else { refreshRemember(); handler.postDelayed(this::showRememberPanel, 650L); }
         }
 
         void panelTertiary() {
-            if (panelKind.equals("MUSIC")) launchOrStore("com.spotify.music");
+            if (panelKind.equals("MUSIC")) showMusicSources();
             else showMode(HOME);
         }
 
@@ -2283,6 +2590,7 @@ public final class MainActivity extends Activity {
             else if (a.equals("PANEL_SECONDARY")) panelSecondary();
             else if (a.equals("PANEL_TERTIARY")) panelTertiary();
             else if (a.equals("PANEL_CLOSE")) showMode(HOME);
+            else if (a.startsWith("REMEMBER_ITEM:")) showRememberItemMenu(Integer.parseInt(a.substring(14)));
             else if (a.equals("LOLILE_HUB")) guarded(() -> launchLolileHub());
             else if (a.equals("DICTATE")) startDictation();
             else if (a.equals("CHECK_UPDATE")) guarded(() -> maybeCheckUpdate(true));

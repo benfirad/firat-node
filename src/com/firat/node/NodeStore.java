@@ -7,7 +7,13 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.database.Cursor;
+import android.media.AudioAttributes;
+import android.media.RingtoneManager;
+import android.net.Uri;
 import android.os.Build;
+import android.provider.OpenableColumns;
+import android.provider.Settings;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -19,16 +25,79 @@ import java.util.Locale;
 
 final class NodeStore {
     static final String PREFS = "firat_node_private";
-    static final String CHANNEL = "firat_mail_summary";
+    private static final String LEGACY_CHANNEL = "firat_mail_summary";
+    private static final String CHANNEL_PREFIX = "daak_summary_loud_v1_";
+    private static final String SOUND_PREF = "notification_sound_key";
     static final String ACTION_HOURLY = "com.firat.node.HOURLY_MAIL";
     static final String ACTION_MORNING = "com.firat.node.MORNING_MAIL";
+
+    static String channelId(Context context) {
+        return CHANNEL_PREFIX + soundKey(context);
+    }
+
+    static String soundKey(Context context) {
+        String key = context.getSharedPreferences(PREFS, 0).getString(SOUND_PREF, "pulse");
+        return key.equals("terminal") || key.equals("deep") ? key : "pulse";
+    }
+
+    static Uri soundUri(Context context, String key) {
+        int resource = key.equals("terminal") ? R.raw.terminal_tick
+                : key.equals("deep") ? R.raw.deep_node : R.raw.daak_pulse;
+        return Uri.parse("android.resource://" + context.getPackageName() + "/" + resource);
+    }
+
+    static boolean selectSound(Context context, String key, boolean systemDefault) {
+        if (!key.equals("terminal") && !key.equals("deep")) key = "pulse";
+        context.getSharedPreferences(PREFS, 0).edit().putString(SOUND_PREF, key).apply();
+        if (Build.VERSION.SDK_INT >= 26) {
+            NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (manager != null) {
+                manager.deleteNotificationChannel(LEGACY_CHANNEL);
+                manager.deleteNotificationChannel(CHANNEL_PREFIX + "pulse");
+                manager.deleteNotificationChannel(CHANNEL_PREFIX + "terminal");
+                manager.deleteNotificationChannel(CHANNEL_PREFIX + "deep");
+            }
+        }
+        ensureChannel(context);
+        if (!systemDefault) return true;
+        if (!Settings.System.canWrite(context)) return false;
+        RingtoneManager.setActualDefaultRingtoneUri(context, RingtoneManager.TYPE_NOTIFICATION, soundUri(context, key));
+        return true;
+    }
+
+    static void migrateLoudSound(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS, 0);
+        if (prefs.getBoolean("loud_sound_v1_migrated", false)) return;
+        String selected = "pulse";
+        Cursor cursor = null;
+        try {
+            Uri current = RingtoneManager.getActualDefaultRingtoneUri(context, RingtoneManager.TYPE_NOTIFICATION);
+            if (current != null) {
+                cursor = context.getContentResolver().query(current,
+                        new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null);
+                if (cursor != null && cursor.moveToFirst()) {
+                    String name = cursor.getString(0).toLowerCase(Locale.US);
+                    if (name.contains("terminal")) selected = "terminal";
+                    else if (name.contains("deep")) selected = "deep";
+                }
+            }
+        } catch (Exception ignored) { }
+        finally { if (cursor != null) cursor.close(); }
+        selectSound(context, selected, true);
+        prefs.edit().putBoolean("loud_sound_v1_migrated", true).apply();
+    }
 
     static void ensureChannel(Context context) {
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
             if (manager == null) return;
-            NotificationChannel channel = new NotificationChannel(CHANNEL, "DAAK summaries", NotificationManager.IMPORTANCE_DEFAULT);
-            channel.setDescription("DAAK NODE read-only mail and task summaries");
+            String key = soundKey(context);
+            NotificationChannel channel = new NotificationChannel(channelId(context), "DAAK summaries", NotificationManager.IMPORTANCE_DEFAULT);
+            channel.setDescription("DAAK NODE read-only mail and task summaries • loud embedded tone");
+            AudioAttributes attributes = new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build();
+            channel.setSound(soundUri(context, key), attributes);
             manager.createNotificationChannel(channel);
         }
     }

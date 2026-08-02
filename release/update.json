@@ -1,7 +1,7 @@
 {
-  "versionCode": 17,
-  "versionName": "6.7.0",
-  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.7.0/DAAK-NODE.apk",
-  "sha256": "e9a49590b8a16261d50ad11b789d3f0ecafb12bc0538963cf9cf7c94c3cda926",
-  "notes": "Google Calendar + Obsidian takvim aynası, Gmail bildirim analizi, daha okunur ve taşmasız OLED tipografi, Music Hub, sürüm etiketi, sessiz Termux RunCommand kanalı ve biyometrik Lolie/Mac güç kontrolleri."
+  "versionCode": 18,
+  "versionName": "6.8.0",
+  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.8.0/DAAK-NODE.apk",
+  "sha256": "7227556cc97e63b0e910d78248120578ae928f8c90f43ecc0514b2cecb9e3e8d",
+  "notes": "Yüksek sesli gömülü DAAK tonları, çizgili alt menü, daakREMEMBER düzenle/tamamla/sil/geri al, MediaSession müzik denetimi, hava konumuna göre özel günler ve Tailscale'e kapalı güvenli uzaktan ADB."
 }

@@ -4,6 +4,7 @@ set -u
 export PREFIX=/data/data/com.termux/files/usr
 export PATH="$PREFIX/bin:/system/bin:/system/xbin"
 termux_home=/data/data/com.termux/files/home
+export HOME="$termux_home"
 
 target=${1:-}
 temporary=""
@@ -31,6 +32,12 @@ heartbeat="$termux_home/.config/daak/sshd-firewall.ready"
 updated=$(cat "$heartbeat" 2>/dev/null || printf 0)
 case "$updated" in ''|*[!0-9]*) updated=0 ;; esac
 if [ $((now - updated)) -le 180 ]; then report "FIREWALL OK"; else report "FIREWALL FAIL"; fi
+
+if [ "$(getprop service.adb.tcp.port)" = "5555" ] && [ $((now - updated)) -le 180 ]; then
+    report "REMOTE ADB OK"
+else
+    report "REMOTE ADB OFF"
+fi
 
 tail_ip=$(ip -4 -o addr show 2>/dev/null | awk '$2 ~ /^tun/ && $4 ~ /^100\./ {sub(/\/.*/, "", $4); print $4; exit}')
 if [ -n "$tail_ip" ]; then report "TAILNET OK $tail_ip"; else report "TAILNET FAIL"; fi
