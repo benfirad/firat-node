@@ -41,6 +41,7 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Three normalized, embedded notification tones with immediate preview and a versioned high-importance Android channel
 - Kurek files can stream through a localhost-only, three-minute encrypted SMB3 preview rendered inline by Fennec/Firefox without a persistent phone copy, or download explicitly for offline use
 - `Kitap Meraklısına` keeps a resumable, non-deleting 2.79 GiB offline mirror under `Documents/DAAK-Vault`; Android JobScheduler runs lightweight six-hour checks only on unmetered Wi-Fi while charging, plus a weekly integrity reconciliation
+- Book's Story is integrated into the Kurek/Books panel with a Turkish, true-black OLED reading profile and direct access to the local `Kitap Meraklısına` library; EPUB, PDF, FB2, TXT, HTML and Markdown stay on-device
 - Scrollable Kurek folders with path-stable live refreshes
 - One-tap Fossify Clock alarms and battery-light Plees sleep tracking from the control centre
 - Optional daily update checks with a pinned manifest and mandatory APK SHA-256 verification
@@ -106,6 +107,7 @@ Android additionally enforces that an upgrade carries the same signing certifica
 - [Fossify Clock](https://github.com/FossifyOrg/Clock)
 - [Plees Tracker](https://gitlab.com/vmiklos/plees-tracker)
 - [Material Files](https://github.com/zhanghai/MaterialFiles)
+- [Book's Story](https://github.com/Acclorite/book-story)
 - [daakREMEMBER](https://github.com/benfirad/daakREMEMBER)
 - [Obsidian](https://github.com/obsidianmd/obsidian-releases)
 - [FUTO Voice Input](https://github.com/futo-org/voice-input)

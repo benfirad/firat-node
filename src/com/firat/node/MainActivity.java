@@ -98,7 +98,8 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public final class MainActivity extends Activity {
-    private static final String BUILD_VERSION = "6.9.1";
+    private static final String BUILD_VERSION = "6.9.2";
+    private static final String BOOK_READER_PACKAGE = "ua.acclorite.book_story";
     private static final int TERMUX_PERMISSION_REQUEST = 73;
     private static final int CALENDAR_PERMISSION_REQUEST = 74;
     private static final int LOCATION_PERMISSION_REQUEST = 75;
@@ -1756,7 +1757,7 @@ public final class MainActivity extends Activity {
             RectF backup = new RectF(left, top + sideThird * 2f + gap * 2f, left + side, bottom);
             button(c, back, "BACK", "UP ONE LEVEL", trimText(diskPath, 22), false, "DISK_UP");
             button(c, refresh, "SMB3", "REFRESH", diskState + " • TAILNET", true, "DISK_REFRESH");
-            button(c, backup, "LOCAL", "BOOK BACKUP", "OFFLINE COPY", false, "DISK_BACKUP");
+            button(c, backup, "READ", "OLED LIBRARY", "READER + BACKUP", false, "DISK_BACKUP");
             float colW = (right - listLeft - gap) / 2f, rowH = dp(42);
             type(7, diskLoading ? mint : soft, false); c.drawText(trimText(diskMessage, 68), listLeft, top + dp(10), paint);
             top += dp(16);
@@ -1835,7 +1836,7 @@ public final class MainActivity extends Activity {
             RectF backup = new RectF(left + third * 2f + gap * 2f, dp(120), right, dp(180));
             button(c, back, "BACK", "UP ONE LEVEL", "NATIVE BROWSER", false, "DISK_UP");
             button(c, refresh, "SMB3", "REFRESH", "PRIVATE TAILNET", true, "DISK_REFRESH");
-            button(c, backup, "LOCAL", "BOOKS", "OFFLINE BACKUP", false, "DISK_BACKUP");
+            button(c, backup, "READ", "OLED BOOKS", "READER + BACKUP", false, "DISK_BACKUP");
             type(7, diskLoading ? mint : soft, false); c.drawText(trimText(diskMessage, 48), left, dp(199), paint);
             float listTop = dp(210), listBottom = getHeight() - dp(96), y = listTop - diskScroll;
             if (diskItems.isEmpty()) {
@@ -2142,17 +2143,25 @@ public final class MainActivity extends Activity {
                 } catch (Exception ignored) { }
             }
             AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("KİTAP MERAKLISINA // LOCAL")
-                    .setMessage(detail)
-                    .setPositiveButton("YEDEKLE", (d, which) -> {
+                    .setTitle("KİTAP MERAKLISINA // OLED")
+                    .setMessage("Book's Story • tam siyah okuma profili\n\n" + detail)
+                    .setPositiveButton("OKUYUCU", (d, which) -> openBookReader())
+                    .setNeutralButton("YEDEKLE", (d, which) -> {
                         diskMessage = "Book backup started • Wi-Fi / SMB3";
                         message = "KUREK BOOKS // LOCAL SYNC"; invalidate();
                         runTermuxRaw("exec ~/.shortcuts/lolile-books-sync", true, null);
                         toast("Yerel kitap yedeği başladı");
                     })
-                    .setNeutralButton("YERELİ AÇ", (d, which) -> openBookBackupFolder())
-                    .setNegativeButton("KAPAT", null).create();
+                    .setNegativeButton("DOSYALAR", (d, which) -> openBookBackupFolder()).create();
             showDaakDialog(dialog);
+        }
+
+        void openBookReader() {
+            if (getPackageManager().getLaunchIntentForPackage(BOOK_READER_PACKAGE) == null) {
+                toast("Book's Story bulunamadı • F-Droid üzerinden kur");
+                return;
+            }
+            launchPackage(BOOK_READER_PACKAGE);
         }
 
         void openBookBackupFolder() {

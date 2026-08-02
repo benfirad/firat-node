@@ -1,7 +1,7 @@
 {
-  "versionCode": 23,
-  "versionName": "6.9.1",
-  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.9.1/DAAK-NODE.apk",
-  "sha256": "58e7c05f9477ef85c0ad6a507686b1f5492de45c3d33e29f48f8632c0b776c87",
-  "notes": "Kurek satırları sabit dosya yoluna bağlandı ve her dosyada ÖNİZLE/İNDİR seçenekleri gösteriliyor; Kitap Meraklısına için doğrulanmış 2.79 GiB yerel yedek, Android tabanlı Wi-Fi+şarj zamanlayıcısı ve haftalık bütünlük taraması eklendi."
+  "versionCode": 24,
+  "versionName": "6.9.2",
+  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.9.2/DAAK-NODE.apk",
+  "sha256": "8e9631336acd4b5b8d54f1d7c3ade6b0578e040b59ad6430fc4764393d622a94",
+  "notes": "Book's Story 1.8.0 doğrudan DAAK NODE kitap paneline entegre edildi; Türkçe arayüz, gerçek siyah DAAK OLED okuma profili, yerel Kitap Meraklısına klasör yetkisi ve okuyucu/yedek/dosya kısayolları eklendi."
 }
