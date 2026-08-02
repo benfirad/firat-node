@@ -11,6 +11,7 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Text-first app drawer, searchable launcher and built-in help/control screens
 - Biometric/device-credential vault for Codex, SSH and Debian actions
 - Direct Codex CLI control over Termux + SSH (no API integration in the launcher)
+- Native DAAK Codex workspace screen for zero-context, RM-OS hub, phone-source and custom Mac paths
 - Tailnet-only Mac and Windows/Lolie status, SSH and navigable `smb://lolile/kurek` SMB3 workflows
 - Last-known-good Kurek index caching, so transient SMB retries never blank the disk interface
 - daakLOLILE private dashboard integration
@@ -23,7 +24,9 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Ten-minute expiry for mail metadata viewed inside the launcher
 - Native Tailnet integration with daakREMEMBER for reading and quick-capturing notes
 - Opt-in, keyword-limited WhatsApp notification-to-task capture; never sends messages
+- Official WhatsApp companion-device setup, so the node can join an existing account by QR without its own SIM
 - On-device Turkish dictation through Android's speech-recognition contract (tested with FUTO Voice Input)
+- Five-minute cleanup for non-system apps launched from DAAK, with messaging, VPN, mail, music and input services protected
 - DAAK Inbox routing: review a Codex CLI suggestion before writing dictated text to daakREMEMBER, Obsidian, both, or a Codex session
 - Four user-configurable pinned application slots
 - One-way daakREMEMBER task export into `DAAK-Vault/daakREMEMBER.md` for Obsidian
@@ -36,6 +39,7 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Scrollable Kurek folders with path-stable live refreshes
 - One-tap Fossify Clock alarms and battery-light Plees sleep tracking from the control centre
 - Optional daily update checks with a pinned manifest and mandatory APK SHA-256 verification
+- Two-line temperature, apparent-temperature and condition display without clipped weather text
 
 ## Security model
 

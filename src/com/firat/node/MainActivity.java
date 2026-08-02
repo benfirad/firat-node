@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.database.Cursor;
@@ -355,7 +356,10 @@ public final class MainActivity extends Activity {
             toast("Uygulama bulunamadı: " + packageName);
             return;
         }
-        try { startActivity(intent); }
+        try {
+            startActivity(intent);
+            if (nodeView != null) nodeView.noteExternalLaunch(packageName);
+        }
         catch (RuntimeException error) { toast("Uygulama açılamadı"); }
     }
 
@@ -388,7 +392,7 @@ public final class MainActivity extends Activity {
     }
 
     private final class NodeView extends View {
-        static final int HOME = 0, APPS = 1, HELP = 2, CONTROL = 3, DISK_VIEW = 4, REMOTE = 5;
+        static final int HOME = 0, APPS = 1, HELP = 2, CONTROL = 3, DISK_VIEW = 4, REMOTE = 5, CODEX_VIEW = 6;
         static final String DISK_ROOT = "smb://lolile/kurek";
         final int mint = Color.rgb(120, 247, 212);
         final int mintDim = Color.rgb(57, 135, 114);
@@ -411,7 +415,7 @@ public final class MainActivity extends Activity {
         String query = "";
         String meshIp = "CHECKING", macState = "CHECKING", diskState = "CHECKING";
         String sshState = "CHECKING", message = "DAAK NODE V6 READY";
-        String weather = "TAP TO ENABLE", agendaOne = "Calendar permission required", agendaTwo = "";
+        String weather = "TAP TO ENABLE", weatherDetails = "", agendaOne = "Calendar permission required", agendaTwo = "";
         String mailLine = "Connect Thunderbird + notification access";
         String weatherCity = "";
         String rememberLine = "SYNCING WITH MAC...";
@@ -444,6 +448,18 @@ public final class MainActivity extends Activity {
                 handler.postDelayed(this, 30_000L);
             }
         };
+        String cleanupPackage;
+        final Runnable appCleanup = new Runnable() {
+            @Override public void run() {
+                if (!active || destroyed || cleanupPackage == null) return;
+                String target = cleanupPackage;
+                cleanupPackage = null;
+                if (!isCleanupCandidate(target)) return;
+                runTermuxRaw("su -c 'am force-stop " + target + "'", true, null);
+                message = "MEMORY // " + target.toUpperCase(Locale.US) + " CLOSED";
+                invalidate();
+            }
+        };
 
         NodeView(Context context) {
             super(context);
@@ -458,11 +474,13 @@ public final class MainActivity extends Activity {
             active = true;
             handler.removeCallbacks(statusTicker);
             handler.removeCallbacks(oledTicker);
+            handler.removeCallbacks(appCleanup);
             refreshStatus();
             refreshRemember();
             syncObsidian(false);
             handler.postDelayed(statusTicker, 60_000L);
             handler.postDelayed(oledTicker, 30_000L);
+            if (cleanupPackage != null) handler.postDelayed(appCleanup, 5L * 60L * 1000L);
         }
 
         void syncObsidian(boolean force) {
@@ -476,6 +494,7 @@ public final class MainActivity extends Activity {
             active = false;
             handler.removeCallbacks(statusTicker);
             handler.removeCallbacks(oledTicker);
+            handler.removeCallbacks(appCleanup);
         }
 
         void shutdown() {
@@ -542,6 +561,25 @@ public final class MainActivity extends Activity {
             mode = newMode;
             drawerScroll = 0;
             invalidate();
+        }
+
+        void noteExternalLaunch(String packageName) {
+            if (packageName == null || !packageName.matches("[A-Za-z0-9._]+")) return;
+            cleanupPackage = packageName;
+            handler.removeCallbacks(appCleanup);
+        }
+
+        boolean isCleanupCandidate(String packageName) {
+            String[] keepAlive = {
+                    "com.whatsapp", "com.tailscale.ipn", "net.thunderbird.android", "com.termux",
+                    "org.futo.inputmethod.latin", "org.futo.voiceinput", "org.oxycblt.auxio",
+                    "org.fossify.calendar", "org.fossify.clock", "hu.vmiklos.plees_tracker"
+            };
+            for (String keep : keepAlive) if (keep.equals(packageName)) return false;
+            try {
+                ApplicationInfo info = getPackageManager().getApplicationInfo(packageName, 0);
+                return (info.flags & ApplicationInfo.FLAG_SYSTEM) == 0;
+            } catch (PackageManager.NameNotFoundException error) { return false; }
         }
 
         void playRotationTransition() {
@@ -716,11 +754,11 @@ public final class MainActivity extends Activity {
             String configuredCity = getSharedPreferences(NodeStore.PREFS, 0).getString("weather_city", "").trim();
             if (configuredCity.length() > 0) { fetchCityWeather(configuredCity); return; }
             if (checkSelfPermission("android.permission.ACCESS_COARSE_LOCATION") != PackageManager.PERMISSION_GRANTED) {
-                weather = "TAP FOR LOCATION"; invalidate(); return;
+                weather = "TAP FOR LOCATION"; weatherDetails = ""; invalidate(); return;
             }
             LocationManager manager = (LocationManager)getSystemService(LOCATION_SERVICE);
             if (manager == null) {
-                weather = "LOCATION UNAVAILABLE"; invalidate(); return;
+                weather = "LOCATION UNAVAILABLE"; weatherDetails = ""; invalidate(); return;
             }
             Location location = null;
             try {
@@ -728,7 +766,7 @@ public final class MainActivity extends Activity {
                 if (location == null) location = manager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
             } catch (RuntimeException ignored) { }
             if (location == null) {
-                weather = "LOCATING..."; invalidate();
+                weather = "LOCATING..."; weatherDetails = ""; invalidate();
                 try {
                     clearPendingLocationRequest();
                     pendingLocationManager = manager;
@@ -741,14 +779,14 @@ public final class MainActivity extends Activity {
                         @Override public void onProviderEnabled(String provider) { }
                         @Override public void onProviderDisabled(String provider) {
                             clearPendingLocationRequest();
-                            if (!destroyed) { weather = "LOCATION DISABLED"; invalidate(); }
+                            if (!destroyed) { weather = "LOCATION DISABLED"; weatherDetails = ""; invalidate(); }
                         }
                     };
                     manager.requestSingleUpdate(LocationManager.NETWORK_PROVIDER,
                             pendingLocationListener, Looper.getMainLooper());
                 } catch (RuntimeException error) {
                     clearPendingLocationRequest();
-                    weather = "LOCATION DISABLED"; invalidate();
+                    weather = "LOCATION DISABLED"; weatherDetails = ""; invalidate();
                 }
                 return;
             }
@@ -766,19 +804,20 @@ public final class MainActivity extends Activity {
                     while ((count = input.read(buffer)) > 0) json.append(new String(buffer, 0, count, "UTF-8")); input.close();
                     JSONObject current = new JSONObject(json.toString()).getJSONObject("current");
                     final String prefix = weatherCity.length() == 0 ? "" : weatherCity.toUpperCase(Locale.getDefault()) + " • ";
-                    final String value = prefix + Math.round(current.getDouble("temperature_2m")) + "°C • feels " + Math.round(current.getDouble("apparent_temperature")) + "° • " + weatherCode(current.getInt("weather_code"));
+                    final String value = prefix + Math.round(current.getDouble("temperature_2m")) + "°C";
+                    final String details = "HİS " + Math.round(current.getDouble("apparent_temperature")) + "°C • " + weatherCode(current.getInt("weather_code"));
                     lastWeatherRefresh = System.currentTimeMillis(); handler.post(() -> {
-                        if (!destroyed) { weather = value; invalidate(); }
+                        if (!destroyed) { weather = value; weatherDetails = details; invalidate(); }
                     });
                 } catch (Exception error) { handler.post(() -> {
-                    if (!destroyed) { weather = "WEATHER OFFLINE"; invalidate(); }
+                    if (!destroyed) { weather = "WEATHER OFFLINE"; weatherDetails = ""; invalidate(); }
                 }); }
                 finally { if (connection != null) connection.disconnect(); }
             }, "node-weather").start();
         }
 
         void fetchCityWeather(final String city) {
-            weather = "SEARCHING " + city.toUpperCase(Locale.getDefault()); invalidate();
+            weather = "SEARCHING " + city.toUpperCase(Locale.getDefault()); weatherDetails = ""; invalidate();
             new Thread(() -> {
                 HttpURLConnection connection = null;
                 try {
@@ -790,7 +829,7 @@ public final class MainActivity extends Activity {
                     Location location = new Location("city"); location.setLatitude(result.getDouble("latitude")); location.setLongitude(result.getDouble("longitude"));
                     weatherCity = result.optString("name", city); fetchWeather(location);
                 } catch (Exception error) { handler.post(() -> {
-                    if (!destroyed) { weather = "CITY NOT FOUND"; invalidate(); }
+                    if (!destroyed) { weather = "CITY NOT FOUND"; weatherDetails = ""; invalidate(); }
                 }); }
                 finally { if (connection != null) connection.disconnect(); }
             }, "node-weather-city").start();
@@ -869,6 +908,7 @@ public final class MainActivity extends Activity {
                 else if (mode == HELP) drawHelpLandscape(c);
                 else if (mode == CONTROL) drawControlLandscape(c);
                 else if (mode == DISK_VIEW) drawDiskLandscape(c);
+                else if (mode == CODEX_VIEW) drawCodexLandscape(c);
                 else drawRemoteLandscape(c);
                 drawDockLandscape(c);
             } else {
@@ -877,6 +917,7 @@ public final class MainActivity extends Activity {
                 else if (mode == HELP) drawHelp(c);
                 else if (mode == CONTROL) drawControl(c);
                 else if (mode == DISK_VIEW) drawDisk(c);
+                else if (mode == CODEX_VIEW) drawCodex(c);
                 else drawRemote(c);
                 drawDock(c);
             }
@@ -929,8 +970,8 @@ public final class MainActivity extends Activity {
             type(6, ghost, false); c.drawText("07:30 + HOURLY", mail.left + dp(10), dp(432), paint); addHit(mail, "MAIL");
             RectF climate = new RectF(left + half + gap, dp(374), right, dp(440));
             box(c, climate, 12, panel, line); type(7, mint, true); c.drawText("WEATHER", climate.left + dp(10), dp(393), paint);
-            type(6.5f, soft, false); c.drawText(trimText(weather, 23), climate.left + dp(10), dp(417), paint);
-            type(6, ghost, false); c.drawText("OPEN-METEO • 30 MIN", climate.left + dp(10), dp(432), paint); addHit(climate, "WEATHER");
+            type(6.5f, soft, false); c.drawText(trimText(weather, 23), climate.left + dp(10), dp(414), paint);
+            type(6, mintDim, true); c.drawText(trimText(weatherDetails.length() == 0 ? "OPEN-METEO • 30 MIN" : weatherDetails, 26), climate.left + dp(10), dp(432), paint); addHit(climate, "WEATHER");
             RectF agenda = new RectF(left, dp(448), right, dp(514));
             box(c, agenda, 12, panel, line); type(7, mint, true); c.drawText("AGENDA // NEXT 7 DAYS", agenda.left + dp(10), dp(467), paint);
             type(6.5f, soft, false); c.drawText(trimText(agendaOne, 49), agenda.left + dp(10), dp(489), paint);
@@ -985,7 +1026,8 @@ public final class MainActivity extends Activity {
             type(6.3f, soft, false); c.drawText(trimText(mailLine, 35), x3 + dp(10), top + dp(42), paint); addHit(mail, "MAIL");
             RectF climate = new RectF(x3, dp(134), x3 + col, dp(193));
             box(c, climate, 12, panel, line); type(7, mint, true); c.drawText("WEATHER", x3 + dp(10), dp(153), paint);
-            type(6.3f, soft, false); c.drawText(trimText(weather, 35), x3 + dp(10), dp(177), paint); addHit(climate, "WEATHER");
+            type(6.3f, soft, false); c.drawText(trimText(weather, 35), x3 + dp(10), dp(174), paint);
+            type(5.5f, mintDim, true); c.drawText(trimText(weatherDetails, 39), x3 + dp(10), dp(189), paint); addHit(climate, "WEATHER");
             RectF agenda = new RectF(x3, dp(201), x3 + col, bottom);
             box(c, agenda, 12, panel, line); type(7, mint, true); c.drawText("AGENDA // NEXT", x3 + dp(10), dp(221), paint);
             type(6.3f, soft, false); c.drawText(trimText(agendaOne, 35), x3 + dp(10), dp(246), paint);
@@ -1117,21 +1159,28 @@ public final class MainActivity extends Activity {
             }
         }
 
-        void showCodexChooser() {
-            final String[] options = {
-                    "PROJESİZ // BOŞ ÇALIŞMA ALANI",
-                    "DAAK HUB // RM-OS + OBSIDIAN",
-                    "PROJE TELEFONU",
-                    "MAC KLASÖR YOLU GİR"
-            };
-            new AlertDialog.Builder(MainActivity.this).setTitle("CODEX CLI // WORKSPACE")
-                    .setItems(options, (dialog, which) -> {
-                        if (which == 0) launchCodexWorkspace("standalone", "");
-                        else if (which == 1) launchCodexWorkspace("hub", "");
-                        else if (which == 2) launchCodexWorkspace("phone", "");
-                        else showCodexCustomPath();
-                    })
-                    .setNegativeButton("İPTAL", null).show();
+        void drawCodex(Canvas c) {
+            float left = dp(16), right = getWidth() - dp(16), gap = dp(9);
+            type(17, mint, true); c.drawText("CODEX // WORKSPACE", left, dp(88), paint);
+            type(7, soft, false); c.drawText("MAC • REAL CODEX CLI • SELECT CONTEXT", left, dp(107), paint);
+            float top = dp(124), h = dp(82);
+            button(c, new RectF(left, top, right, top + h), "ZERO", "PROJESİZ", "BOŞ VE GEÇİCİ ÇALIŞMA ALANI", true, "CODEX_RUN:standalone");
+            top += h + gap;
+            button(c, new RectF(left, top, right, top + h), "HUB", "DAAK KNOWLEDGE", "RM-OS • OBSIDIAN • REMEMBER", true, "CODEX_RUN:hub");
+            top += h + gap;
+            button(c, new RectF(left, top, right, top + h), "NODE", "PROJE TELEFONU", "DAAK NODE SOURCE WORKSPACE", false, "CODEX_RUN:phone");
+            top += h + gap;
+            button(c, new RectF(left, top, right, top + h), "PATH", "MAC KLASÖRÜ", "ÖZEL PROJE YOLU GİR", false, "CODEX_CUSTOM");
+            type(7, ghost, false); c.drawText("Seçim biyometri kasasından sonra Mac'teki CLI'yi açar.", left, top + h + dp(27), paint);
+        }
+
+        void drawCodexLandscape(Canvas c) {
+            float left = dp(16), right = getWidth() - dp(16), top = dp(67), bottom = getHeight() - dp(58), gap = dp(9);
+            float halfW = (right - left - gap) / 2f, halfH = (bottom - top - gap) / 2f;
+            button(c, new RectF(left, top, left + halfW, top + halfH), "ZERO", "PROJESİZ", "TEMPORARY / CLEAN", true, "CODEX_RUN:standalone");
+            button(c, new RectF(left + halfW + gap, top, right, top + halfH), "HUB", "DAAK KNOWLEDGE", "RM-OS / OBSIDIAN", true, "CODEX_RUN:hub");
+            button(c, new RectF(left, top + halfH + gap, left + halfW, bottom), "NODE", "PROJE TELEFONU", "DAAK NODE SOURCE", false, "CODEX_RUN:phone");
+            button(c, new RectF(left + halfW + gap, top + halfH + gap, right, bottom), "PATH", "MAC KLASÖRÜ", "CUSTOM WORKSPACE", false, "CODEX_CUSTOM");
         }
 
         void showCodexCustomPath() {
@@ -1451,7 +1500,7 @@ public final class MainActivity extends Activity {
             for (int i = 0; i < 5; i++) {
                 RectF r = new RectF(left + i * cell, top, left + (i + 1) * cell, getHeight());
                 boolean active = (i == 0 && mode == HOME) || (i == 1 && mode == APPS) ||
-                        (i == 3 && mode == DISK_VIEW) || (i == 4 && mode == HELP);
+                        (i == 2 && mode == CODEX_VIEW) || (i == 3 && mode == DISK_VIEW) || (i == 4 && mode == HELP);
                 type(7.5f, active ? mint : soft, true); center(c, labels[i], r.centerX(), top + dp(37)); addHit(r, actions[i]);
             }
         }
@@ -1465,7 +1514,8 @@ public final class MainActivity extends Activity {
             float cell = (right - left) / 5f;
             for (int i = 0; i < 5; i++) {
                 RectF r = new RectF(left + i * cell, top, left + (i + 1) * cell, getHeight());
-                boolean selected = (i == 0 && mode == HOME) || (i == 1 && mode == APPS) || (i == 3 && mode == DISK_VIEW) || (i == 4 && mode == HELP);
+                boolean selected = (i == 0 && mode == HOME) || (i == 1 && mode == APPS) ||
+                        (i == 2 && mode == CODEX_VIEW) || (i == 3 && mode == DISK_VIEW) || (i == 4 && mode == HELP);
                 type(7, selected ? mint : soft, true); center(c, labels[i], r.centerX(), top + dp(30)); addHit(r, actions[i]);
             }
         }
@@ -1859,7 +1909,9 @@ public final class MainActivity extends Activity {
             else if (a.equals("DISK_UP")) diskUp();
             else if (a.startsWith("DISK_ITEM:") && !diskLoading) openDiskItem(Integer.parseInt(a.substring(10)));
             else if (a.equals("DISK_TERM")) openDiskTerminal();
-            else if (a.equals("CODEX")) showCodexChooser();
+            else if (a.equals("CODEX")) showMode(CODEX_VIEW);
+            else if (a.startsWith("CODEX_RUN:")) launchCodexWorkspace(a.substring(10), "");
+            else if (a.equals("CODEX_CUSTOM")) showCodexCustomPath();
             else if (a.equals("MAC")) guarded(() -> runTermux("exec ~/.shortcuts/mac", "MAC SSH"));
             else if (a.equals("LOCAL")) guarded(() -> runTermux("exec ~/.shortcuts/debian", "DEBIAN"));
             else if (a.equals("DISK")) guarded(() -> { showMode(DISK_VIEW); loadCachedDiskIndex(); refreshDiskIndex(); });
