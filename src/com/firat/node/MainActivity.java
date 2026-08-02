@@ -92,7 +92,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public final class MainActivity extends Activity {
-    private static final String BUILD_VERSION = "6.8.1";
+    private static final String BUILD_VERSION = "6.8.2";
     private static final int TERMUX_PERMISSION_REQUEST = 73;
     private static final int CALENDAR_PERMISSION_REQUEST = 74;
     private static final int LOCATION_PERMISSION_REQUEST = 75;
@@ -531,7 +531,7 @@ public final class MainActivity extends Activity {
             syncObsidian(false);
             handler.postDelayed(statusTicker, 60_000L);
             handler.postDelayed(oledTicker, 30_000L);
-            if (cleanupPackage != null) handler.postDelayed(appCleanup, 5L * 60L * 1000L);
+            if (cleanupPackage != null) handler.postDelayed(appCleanup, cleanupDelayMs(cleanupPackage));
         }
 
         void syncObsidian(boolean force) {
@@ -641,6 +641,12 @@ public final class MainActivity extends Activity {
                 ApplicationInfo info = getPackageManager().getApplicationInfo(packageName, 0);
                 return (info.flags & ApplicationInfo.FLAG_SYSTEM) == 0;
             } catch (PackageManager.NameNotFoundException error) { return false; }
+        }
+
+        long cleanupDelayMs(String packageName) {
+            if (packageName.equals("ru.tech.imageresizershrinker") ||
+                    packageName.equals("me.zhanghai.android.files")) return 15_000L;
+            return 10L * 60L * 1000L;
         }
 
         void playRotationTransition() {

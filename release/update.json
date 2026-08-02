@@ -1,7 +1,7 @@
 {
-  "versionCode": 19,
-  "versionName": "6.8.1",
-  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.8.1/DAAK-NODE.apk",
-  "sha256": "7a4309152d7b88b711e8ce69ca72f263956bc8b6907fe270410c79b1c4fc1726",
-  "notes": "Alt menü dokunma anındaki genel yuvarlak stroke tamamen kaldırıldı; seçili bölüm yalnızca yazının altındaki ince çizgiyle gösteriliyor."
+  "versionCode": 20,
+  "versionName": "6.8.2",
+  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.8.2/DAAK-NODE.apk",
+  "sha256": "bee012b9049567b3e98a56a5ea235c6732859af57abbf3a14ecdadc877d222d6",
+  "notes": "46 uygulamalık aç/kapat debug taraması; Image Toolbox ve Material Files için 15 saniyelik hızlı CPU temizliği; normal uygulamalarda 10 dakikalık cache."
 }

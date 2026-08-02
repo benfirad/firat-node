@@ -30,7 +30,7 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Opt-in, keyword-limited WhatsApp notification-to-task capture; never sends messages
 - Official WhatsApp companion-device setup, so the node can join an existing account by QR without its own SIM
 - On-device Turkish dictation through Android's speech-recognition contract (tested with FUTO Voice Input)
-- Five-minute cleanup for non-system apps launched from DAAK, with messaging, VPN, mail, music and input services protected
+- Ten-minute cleanup for ordinary non-system apps launched from DAAK, with 15-second fast cleanup for known hot image/file tools; messaging, VPN, mail, music and input services stay protected
 - DAAK Inbox routing: review a Codex CLI suggestion before writing dictated text to daakREMEMBER, Obsidian, both, or a Codex session
 - Four user-configurable pinned application slots
 - One-way daakREMEMBER task export into `DAAK-Vault/daakREMEMBER.md` for Obsidian

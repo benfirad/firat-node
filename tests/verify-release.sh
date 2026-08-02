@@ -10,15 +10,15 @@ fail() { printf 'FAIL  %s\n' "$1" >&2; exit 1; }
 git diff --check
 pass "git diff hygiene"
 
-sh -n build-apk.sh companion/macos/daak-phone companion/magisk/daak-sshd-firewall.sh companion/termux/daak-selftest
+sh -n build-apk.sh companion/macos/daak-phone companion/magisk/daak-sshd-firewall.sh companion/termux/daak-selftest tests/device-app-sweep.sh
 pass "shell syntax"
 
 ./build-apk.sh >/dev/null
 pass "clean APK build"
 
 aapt2_bin=${ANDROID_HOME:-$HOME/Library/Android/sdk}/build-tools/35.0.1/aapt2
-"$aapt2_bin" dump badging DAAK-NODE.apk | grep -q "versionCode='19'.*versionName='6.8.1'" || fail "APK version"
-pass "APK version 6.8.1 (19)"
+"$aapt2_bin" dump badging DAAK-NODE.apk | grep -q "versionCode='20'.*versionName='6.8.2'" || fail "APK version"
+pass "APK version 6.8.2 (20)"
 
 for tone in daak_pulse deep_node terminal_tick; do
     unzip -l DAAK-NODE.apk | grep -q "res/raw/$tone.ogg" || fail "embedded tone $tone"
@@ -37,7 +37,7 @@ fi
 if command -v adb >/dev/null 2>&1; then
     device=${DAAK_DEVICE_SERIAL:-$(adb devices | awk '$2 == "device" {print $1; exit}')}
     if [ -n "$device" ]; then
-        adb -s "$device" shell dumpsys package com.firat.node | grep -q 'versionName=6.8.1' || fail "installed DAAK version"
+        adb -s "$device" shell dumpsys package com.firat.node | grep -q 'versionName=6.8.2' || fail "installed DAAK version"
         adb -s "$device" shell "su -c 'id'" | grep -q 'uid=0(root)' || fail "root"
         adb -s "$device" shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME | grep -q 'com.firat.node/.MainActivity' || fail "default launcher"
         adb -s "$device" shell pm path com.google.chromeremotedesktop >/dev/null || fail "Chrome Remote Desktop"
@@ -53,4 +53,4 @@ if command -v adb >/dev/null 2>&1; then
     fi
 fi
 
-printf 'DAAK NODE v6.8.1 verification complete.\n'
+printf 'DAAK NODE v6.8.2 verification complete.\n'
