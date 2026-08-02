@@ -5,6 +5,8 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 ## Highlights
 
 - OLED-black launcher with pixel shifting and an immersive, gesture-friendly dock
+- Twenty-five-position OLED pixel orbit plus 2/5/10-minute idle dim and black-screen protection
+- Modern 280 ms fade/scale transition when rotating between portrait and landscape
 - Dedicated three-column landscape control plane and adaptive landscape app/help/disk screens
 - Text-first app drawer, searchable launcher and built-in help/control screens
 - Biometric/device-credential vault for Codex, SSH and Debian actions
@@ -31,6 +33,7 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Android HOME intents reset the launcher to its real home view, including the system bottom-swipe gesture
 - Built-in three-option notification-sound chooser with immediate preview
 - Kurek files download over encrypted SMB3 and open in the installed Android document viewer
+- Scrollable Kurek folders with path-stable live refreshes
 - One-tap Fossify Clock alarms and battery-light Plees sleep tracking from the control centre
 - Optional daily update checks with a pinned manifest and mandatory APK SHA-256 verification
 

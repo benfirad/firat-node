@@ -8,6 +8,7 @@ import android.content.ContentUris;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.database.Cursor;
@@ -40,6 +41,7 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
+import android.view.animation.PathInterpolator;
 import android.webkit.MimeTypeMap;
 import android.speech.RecognizerIntent;
 import android.widget.EditText;
@@ -138,6 +140,12 @@ public final class MainActivity extends Activity {
     @Override public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) hideSystemBars();
+    }
+
+    @Override public void onConfigurationChanged(Configuration configuration) {
+        super.onConfigurationChanged(configuration);
+        hideSystemBars();
+        if (nodeView != null) nodeView.playRotationTransition();
     }
 
     private void hideSystemBars() {
@@ -412,9 +420,10 @@ public final class MainActivity extends Activity {
         boolean diskLoading;
         int rememberOpenCount;
         boolean rooted, vaultUnlocked;
-        float drawerScroll, downX, downY, lastY;
-        boolean moved;
+        float drawerScroll, diskScroll, downX, downY, lastY;
+        boolean moved, wakeOnly;
         float burnX, burnY;
+        long lastInteraction = System.currentTimeMillis();
         long lastWeatherRefresh, nextDiskRetry, lastObsidianSync;
         int diskRetryStep;
         boolean active, destroyed, statusRefreshRunning;
@@ -426,6 +435,13 @@ public final class MainActivity extends Activity {
                 refreshStatus();
                 refreshRemember();
                 handler.postDelayed(this, 60_000L);
+            }
+        };
+        final Runnable oledTicker = new Runnable() {
+            @Override public void run() {
+                if (!active || destroyed) return;
+                invalidate();
+                handler.postDelayed(this, 30_000L);
             }
         };
 
@@ -441,10 +457,12 @@ public final class MainActivity extends Activity {
             if (destroyed) return;
             active = true;
             handler.removeCallbacks(statusTicker);
+            handler.removeCallbacks(oledTicker);
             refreshStatus();
             refreshRemember();
             syncObsidian(false);
             handler.postDelayed(statusTicker, 60_000L);
+            handler.postDelayed(oledTicker, 30_000L);
         }
 
         void syncObsidian(boolean force) {
@@ -457,6 +475,7 @@ public final class MainActivity extends Activity {
         void pauseUpdates() {
             active = false;
             handler.removeCallbacks(statusTicker);
+            handler.removeCallbacks(oledTicker);
         }
 
         void shutdown() {
@@ -525,12 +544,29 @@ public final class MainActivity extends Activity {
             invalidate();
         }
 
+        void playRotationTransition() {
+            lastInteraction = System.currentTimeMillis();
+            animate().cancel();
+            setAlpha(0f); setScaleX(0.965f); setScaleY(0.965f);
+            post(() -> animate().alpha(1f).scaleX(1f).scaleY(1f)
+                    .setDuration(280L).setInterpolator(new PathInterpolator(0.2f, 0f, 0f, 1f))
+                    .withLayer().start());
+        }
+
+        int oledContentAlpha() {
+            long idle = System.currentTimeMillis() - lastInteraction;
+            if (idle >= 10L * 60L * 1000L) return 0;
+            if (idle >= 5L * 60L * 1000L) return 96;
+            if (idle >= 2L * 60L * 1000L) return 184;
+            return 255;
+        }
+
         void refreshStatus() {
             if (destroyed || statusRefreshRunning) return;
             statusRefreshRunning = true;
-            long phase = (System.currentTimeMillis() / 60_000L) % 9L;
-            burnX = dp((phase % 3L) - 1L);
-            burnY = dp((phase / 3L) - 1L);
+            long phase = ((System.currentTimeMillis() / 60_000L) * 7L) % 25L;
+            burnX = dp(((phase % 5L) - 2L) * 2L);
+            burnY = dp(((phase / 5L) - 2L) * 2L);
             new Thread(new Runnable() {
                 @Override public void run() {
                     final String ip = findMeshIp();
@@ -845,6 +881,12 @@ public final class MainActivity extends Activity {
                 drawDock(c);
             }
             c.restore();
+            int contentAlpha = oledContentAlpha();
+            if (contentAlpha < 255) {
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(Color.argb(255 - contentAlpha, 0, 0, 0));
+                c.drawRect(0, 0, getWidth(), getHeight(), paint);
+            }
         }
 
         void drawTopBar(Canvas c) {
@@ -1116,17 +1158,26 @@ public final class MainActivity extends Activity {
         void drawDiskLandscape(Canvas c) {
             float left = dp(16), right = getWidth() - dp(16), top = dp(67), bottom = getHeight() - dp(58), gap = dp(8);
             float side = dp(190), listLeft = left + side + gap;
-            RectF refresh = new RectF(left, top, left + side, bottom);
-            button(c, refresh, "SMB3", trimText(diskPath, 22), diskState + " • TAP REFRESH", true, "DISK_REFRESH");
+            float sideHalf = (bottom - top - gap) / 2f;
+            RectF back = new RectF(left, top, left + side, top + sideHalf);
+            RectF refresh = new RectF(left, top + sideHalf + gap, left + side, bottom);
+            button(c, back, "BACK", "UP ONE LEVEL", trimText(diskPath, 22), false, "DISK_UP");
+            button(c, refresh, "SMB3", "REFRESH", diskState + " • TAILNET", true, "DISK_REFRESH");
             float colW = (right - listLeft - gap) / 2f, rowH = dp(42);
             type(7, diskLoading ? mint : soft, false); c.drawText(trimText(diskMessage, 68), listLeft, top + dp(10), paint);
             top += dp(16);
+            float listTop = top;
             if (diskItems.isEmpty()) { type(9, soft, false); c.drawText(diskMessage, listLeft, top + dp(28), paint); }
-            else for (int i = 0; i < diskItems.size() && i < 12; i++) {
-                int row = i / 2, colIndex = i % 2; float x = listLeft + colIndex * (colW + gap), y = top + row * rowH;
-                if (y + rowH > bottom) break;
-                RectF r = new RectF(x, y, x + colW, y + rowH - dp(3)); box(c, r, 7, panel, line);
-                String item = diskItems.get(i); type(7, item.startsWith("[D]") ? mint : soft, item.startsWith("[D]")); c.drawText(trimText(item, 34), x + dp(9), y + dp(25), paint); addHit(r, "DISK_ITEM:" + i);
+            else {
+                c.save(); c.clipRect(listLeft, listTop, right, bottom);
+                for (int i = 0; i < diskItems.size(); i++) {
+                    int row = i / 2, colIndex = i % 2; float x = listLeft + colIndex * (colW + gap), y = listTop + row * rowH - diskScroll;
+                    if (y + rowH < listTop || y > bottom) continue;
+                    RectF r = new RectF(x, y, x + colW, y + rowH - dp(3)); box(c, r, 7, panel, line);
+                    String item = diskItems.get(i); type(7, item.startsWith("[D]") ? mint : soft, item.startsWith("[D]")); c.drawText(trimText(item, 34), x + dp(9), y + dp(25), paint);
+                    if (r.top >= listTop && r.bottom <= bottom) addHit(r, "DISK_ITEM:" + i);
+                }
+                c.restore();
             }
         }
 
@@ -1141,7 +1192,7 @@ public final class MainActivity extends Activity {
                     "VAULT  → Kritik komutlar için 90 sn biyometrik izin.",
                     "MESH   → İnternet portu yok; Tailnet cihazları erişir.",
                     "MAIL   → Salt okunur özet; gönderim daima açık onay.",
-                    "CACHE  → Hassas mail özeti 10 dakikada temizlenir."
+                    "OLED   → Arayüz kayar; 2/5 dk kararır, 10 dk siyah olur."
             };
             float y = dp(121);
             for (String lineText : lines) {
@@ -1190,23 +1241,27 @@ public final class MainActivity extends Activity {
             button(c, back, "BACK", "UP ONE LEVEL", "NATIVE BROWSER", false, "DISK_UP");
             button(c, refresh, "SMB3", "REFRESH", "PRIVATE TAILNET", true, "DISK_REFRESH");
             type(7, diskLoading ? mint : soft, false); c.drawText(trimText(diskMessage, 48), left, dp(199), paint);
-            float y = dp(210);
+            float listTop = dp(210), listBottom = getHeight() - dp(96), y = listTop - diskScroll;
             if (diskItems.isEmpty()) {
                 type(9, soft, false); c.drawText(diskMessage, left, y + dp(24), paint);
             } else {
-                for (int i = 0; i < diskItems.size() && i < 13; i++) {
+                c.save(); c.clipRect(left, listTop, right, listBottom);
+                for (int i = 0; i < diskItems.size(); i++) {
                     RectF row = new RectF(left, y, right, y + dp(43));
+                    if (row.bottom < listTop || row.top > listBottom) { y += dp(46); continue; }
                     if (i % 2 == 0) { paint.setStyle(Paint.Style.FILL); paint.setColor(panel); c.drawRect(row, paint); }
                     String item = diskItems.get(i);
                     type(9, item.startsWith("[D]") ? mint : soft, item.startsWith("[D]"));
-                    c.drawText(item, left + dp(10), y + dp(27), paint); addHit(row, "DISK_ITEM:" + i); y += dp(46);
+                    c.drawText(item, left + dp(10), y + dp(27), paint);
+                    if (row.top >= listTop && row.bottom <= listBottom) addHit(row, "DISK_ITEM:" + i);
+                    y += dp(46);
                 }
+                c.restore();
             }
-            type(7, ghost, false); c.drawText("Klasöre dokun → gez • dosyaya dokun → indir / aç", left, getHeight() - dp(91), paint);
+            type(7, ghost, false); c.drawText("↕ kaydır • klasöre dokun → gez • dosyaya dokun → indir / aç", left, getHeight() - dp(91), paint);
         }
 
         void refreshDiskIndex() {
-            loadCachedDiskIndex();
             diskLoading = true;
             diskRequestToken = System.currentTimeMillis();
             final long request = diskRequestToken;
@@ -1279,9 +1334,11 @@ public final class MainActivity extends Activity {
                     else if (lineText.trim().length() > 0) loaded.add(lineText.trim());
                 }
                 reader.close();
-                if (loadedPath != null && (loadedPath.equals(DISK_ROOT) || loadedPath.startsWith(DISK_ROOT + "/"))) diskPath = loadedPath;
-                if (!loaded.isEmpty() && (complete || !requireComplete)) {
-                    diskItems.clear(); diskItems.addAll(loaded);
+                if (complete || !requireComplete) {
+                    if (loadedPath != null && (loadedPath.equals(DISK_ROOT) || loadedPath.startsWith(DISK_ROOT + "/"))) diskPath = loadedPath;
+                    if (!loaded.isEmpty()) {
+                        diskItems.clear(); diskItems.addAll(loaded);
+                    }
                 }
             } catch (Exception ignored) { return false; }
             if (!complete) return false;
@@ -1304,6 +1361,7 @@ public final class MainActivity extends Activity {
             if (item.startsWith("[D] ")) {
                 if (!diskPath.endsWith("/")) diskPath += "/";
                 diskPath += name;
+                diskScroll = 0;
                 refreshDiskIndex();
             } else downloadDiskFile(name);
         }
@@ -1374,6 +1432,7 @@ public final class MainActivity extends Activity {
             while (current.endsWith("/") && current.length() > DISK_ROOT.length()) current = current.substring(0, current.length() - 1);
             int slash = current.lastIndexOf('/');
             diskPath = slash < DISK_ROOT.length() ? DISK_ROOT : current.substring(0, slash);
+            diskScroll = 0;
             refreshDiskIndex();
         }
 
@@ -1728,6 +1787,8 @@ public final class MainActivity extends Activity {
         @Override public boolean onTouchEvent(MotionEvent event) {
             float x = event.getX() - burnX, y = event.getY() - burnY;
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                wakeOnly = oledContentAlpha() < 255;
+                lastInteraction = System.currentTimeMillis(); invalidate();
                 downX = x; downY = y; lastY = y; moved = false; return true;
             }
             if (event.getAction() == MotionEvent.ACTION_MOVE) {
@@ -1739,9 +1800,20 @@ public final class MainActivity extends Activity {
                     drawerScroll = Math.max(0, Math.min(max, drawerScroll + delta));
                     lastY = y; invalidate();
                 }
+                else if (mode == DISK_VIEW) {
+                    float delta = lastY - y; if (Math.abs(y - downY) > dp(5)) moved = true;
+                    float max;
+                    if (getWidth() > getHeight()) {
+                        float rows = (diskItems.size() + 1) / 2f;
+                        max = Math.max(0, rows * dp(42) - (getHeight() - dp(141)));
+                    } else max = Math.max(0, diskItems.size() * dp(46) - (getHeight() - dp(306)));
+                    diskScroll = Math.max(0, Math.min(max, diskScroll + delta));
+                    lastY = y; invalidate();
+                }
                 return true;
             }
             if (event.getAction() != MotionEvent.ACTION_UP) return true;
+            if (wakeOnly) { wakeOnly = false; return true; }
             if (downY > getHeight() - dp(115) && downY - y > dp(65)) { showMode(HOME); return true; }
             if (downX > getWidth() - dp(24) && downX - x > dp(65)) { showMode(CONTROL); return true; }
             if (downY < dp(58) && y - downY > dp(55)) { showMode(CONTROL); return true; }
@@ -1785,7 +1857,7 @@ public final class MainActivity extends Activity {
             }
             else if (a.equals("DISK_REFRESH")) refreshDiskIndex();
             else if (a.equals("DISK_UP")) diskUp();
-            else if (a.startsWith("DISK_ITEM:")) openDiskItem(Integer.parseInt(a.substring(10)));
+            else if (a.startsWith("DISK_ITEM:") && !diskLoading) openDiskItem(Integer.parseInt(a.substring(10)));
             else if (a.equals("DISK_TERM")) openDiskTerminal();
             else if (a.equals("CODEX")) showCodexChooser();
             else if (a.equals("MAC")) guarded(() -> runTermux("exec ~/.shortcuts/mac", "MAC SSH"));
