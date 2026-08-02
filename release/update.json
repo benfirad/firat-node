@@ -1,7 +1,7 @@
 {
-  "versionCode": 16,
-  "versionName": "6.6.0",
-  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.6.0/DAAK-NODE.apk",
-  "sha256": "ef4f4e87a9a24b38b8b96d79c3d3eb6f670f57b21563d75988151b4a9adf0856",
-  "notes": "Lilac Purple OLED sürümü: akışkan inertial uygulama kaydırması, basış animasyonları, iki satırlı büyük pinned grid, ana ekranda WhatsApp ve daakREMEMBER, özel DAAK bilgi panelleri ve erişilebilir biyometrik kasa."
+  "versionCode": 17,
+  "versionName": "6.7.0",
+  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.7.0/DAAK-NODE.apk",
+  "sha256": "e9a49590b8a16261d50ad11b789d3f0ecafb12bc0538963cf9cf7c94c3cda926",
+  "notes": "Google Calendar + Obsidian takvim aynası, Gmail bildirim analizi, daha okunur ve taşmasız OLED tipografi, Music Hub, sürüm etiketi, sessiz Termux RunCommand kanalı ve biyometrik Lolie/Mac güç kontrolleri."
 }

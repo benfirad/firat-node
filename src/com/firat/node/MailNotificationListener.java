@@ -17,8 +17,10 @@ public final class MailNotificationListener extends NotificationListenerService 
         if (extras == null) return;
         CharSequence title = extras.getCharSequence(Notification.EXTRA_TITLE);
         CharSequence text = extras.getCharSequence(Notification.EXTRA_TEXT);
-        if (pkg.contains("thunderbird") || pkg.contains("k9mail")) {
-            NodeStore.addMail(this, title == null ? "Mail" : title.toString(), text == null ? "New message" : text.toString(), sbn.getPostTime());
+        if (pkg.contains("thunderbird") || pkg.contains("k9mail") || pkg.equals("com.google.android.gm")) {
+            String source = pkg.equals("com.google.android.gm") ? "Gmail" : "Mail";
+            String sender = title == null ? source : source + " • " + title.toString();
+            NodeStore.addMail(this, sender, text == null ? "New message" : text.toString(), sbn.getPostTime());
             NodeStore.schedule(this);
         } else if (pkg.equals("com.whatsapp")) {
             String task = NodeStore.addWhatsAppTask(this,

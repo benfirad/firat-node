@@ -17,8 +17,10 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Last-known-good Kurek index caching, so transient SMB retries never blank the disk interface
 - daakLOLILE private dashboard integration
 - Chrome Remote Desktop hub for the Google-account device list and touch-friendly remote control
-- Android Calendar Provider agenda with a read-only-by-default launcher view
-- Thunderbird notification summaries at 07:30 and every hour
+- Biometric-gated Lolie/Mac Wake-on-LAN and key-only SSH shutdown controls
+- Google Calendar Provider agenda with a read-only launcher view and an Obsidian Markdown mirror
+- Gmail + Thunderbird notification summaries at 07:30 and every hour
+- Unified music hub for Auxio local playback plus official YouTube Music and Spotify apps
 - Local sender/spam filters; the launcher never sends email
 - Open-Meteo current weather using coarse device location
 - Adaptive 2/3/5-minute Lolie reconnect backoff
@@ -93,7 +95,7 @@ Android additionally enforces that an upgrade carries the same signing certifica
 - [Termux](https://github.com/termux/termux-app)
 - [Tailscale](https://github.com/tailscale/tailscale)
 - [Thunderbird for Android](https://github.com/thunderbird/thunderbird-android)
-- [Fossify Calendar](https://github.com/FossifyOrg/Calendar)
+- [Google Calendar](https://play.google.com/store/apps/details?id=com.google.android.calendar)
 - [Fossify Clock](https://github.com/FossifyOrg/Clock)
 - [Plees Tracker](https://gitlab.com/vmiklos/plees-tracker)
 - [Material Files](https://github.com/zhanghai/MaterialFiles)

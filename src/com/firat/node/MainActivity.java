@@ -58,6 +58,7 @@ import android.widget.Toast;
 import java.io.File;
 import java.io.BufferedReader;
 import java.io.FileReader;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -81,6 +82,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public final class MainActivity extends Activity {
+    private static final String BUILD_VERSION = "6.7.0";
     private static final int TERMUX_PERMISSION_REQUEST = 73;
     private static final int CALENDAR_PERMISSION_REQUEST = 74;
     private static final int LOCATION_PERMISSION_REQUEST = 75;
@@ -402,6 +404,7 @@ public final class MainActivity extends Activity {
         static final int HOME = 0, APPS = 1, HELP = 2, CONTROL = 3, DISK_VIEW = 4, REMOTE = 5,
                 CODEX_VIEW = 6, INFO_PANEL = 7;
         static final String DISK_ROOT = "smb://lolile/kurek";
+        static final float TEXT_SCALE = 1.06f;
         // Samsung never published a CSS/Pantone value for S9 Lilac Purple. This palette is
         // sampled and OLED-adjusted from Samsung's launch render: true black remains black.
         final int mint = Color.rgb(201, 167, 220);       // #C9A7DC
@@ -427,7 +430,7 @@ public final class MainActivity extends Activity {
         int mode = HOME;
         String query = "";
         String meshIp = "CHECKING", macState = "CHECKING", diskState = "CHECKING";
-        String sshState = "CHECKING", message = "DAAK NODE V6 READY";
+        String sshState = "CHECKING", message = "DAAK NODE V" + BUILD_VERSION + " READY";
         String weather = "TAP TO ENABLE", weatherDetails = "", agendaOne = "Calendar permission required", agendaTwo = "";
         String mailLine = "Connect Thunderbird + notification access";
         String whatsAppLine = "Görev bildirimi bekleniyor";
@@ -447,7 +450,7 @@ public final class MainActivity extends Activity {
         long mailViewedAt;
         float burnX, burnY;
         long lastInteraction = System.currentTimeMillis();
-        long lastWeatherRefresh, nextDiskRetry, lastObsidianSync;
+        long lastWeatherRefresh, nextDiskRetry, lastObsidianSync, lastCalendarRefresh;
         int diskRetryStep;
         boolean active, destroyed, statusRefreshRunning;
         LocationManager pendingLocationManager;
@@ -457,6 +460,7 @@ public final class MainActivity extends Activity {
                 if (!active || destroyed) return;
                 refreshStatus();
                 refreshRemember();
+                if (System.currentTimeMillis() - lastCalendarRefresh > 10L * 60L * 1000L) refreshCalendar();
                 handler.postDelayed(this, 60_000L);
             }
         };
@@ -568,7 +572,11 @@ public final class MainActivity extends Activity {
             return trimText(pinnedApp(index).label.toUpperCase(Locale.getDefault()), 7);
         }
 
-        String pinnedAction(int index) { return "PKG:" + pinnedApp(index).packageName; }
+        String pinnedAction(int index) {
+            AppEntry app = pinnedApp(index);
+            if (index == 0 && app.packageName.equals("org.oxycblt.auxio")) return "MUSIC";
+            return "PKG:" + app.packageName;
+        }
 
         void applyFilter() {
             shownApps.clear();
@@ -601,7 +609,7 @@ public final class MainActivity extends Activity {
                     "com.whatsapp", "com.tailscale.ipn", "net.thunderbird.android", "com.termux",
                     "com.bitchat.droid",
                     "org.futo.inputmethod.latin", "org.futo.voiceinput", "org.oxycblt.auxio",
-                    "org.fossify.calendar", "org.fossify.clock", "hu.vmiklos.plees_tracker"
+                    "com.google.android.calendar", "org.fossify.clock", "hu.vmiklos.plees_tracker"
             };
             for (String keep : keepAlive) if (keep.equals(packageName)) return false;
             try {
@@ -762,25 +770,51 @@ public final class MainActivity extends Activity {
             }
             new Thread(() -> {
                 ArrayList<String> rows = new ArrayList<String>();
-                long begin = System.currentTimeMillis(), end = begin + 7L * 24L * 60L * 60L * 1000L;
+                long begin = System.currentTimeMillis(), end = begin + 30L * 24L * 60L * 60L * 1000L;
                 Uri.Builder builder = CalendarContract.Instances.CONTENT_URI.buildUpon();
                 ContentUris.appendId(builder, begin); ContentUris.appendId(builder, end);
                 Cursor cursor = null;
                 try {
-                    cursor = getContentResolver().query(builder.build(), new String[]{CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN}, null, null, CalendarContract.Instances.BEGIN + " ASC");
-                    while (cursor != null && cursor.moveToNext() && rows.size() < 2) {
+                    cursor = getContentResolver().query(builder.build(), new String[]{
+                            CalendarContract.Instances.TITLE, CalendarContract.Instances.BEGIN,
+                            CalendarContract.Instances.EVENT_LOCATION}, null, null,
+                            CalendarContract.Instances.BEGIN + " ASC");
+                    while (cursor != null && cursor.moveToNext() && rows.size() < 50) {
                         String at = new SimpleDateFormat("dd MMM HH:mm", Locale.getDefault()).format(new Date(cursor.getLong(1)));
-                        rows.add(at + " • " + cursor.getString(0));
+                        String title = cursor.getString(0) == null ? "Etkinlik" : cursor.getString(0).replace('\n', ' ').replace('|', '/');
+                        String location = cursor.getString(2);
+                        rows.add(at + " • " + title + (location == null || location.trim().length() == 0 ? "" : " @ " + location.replace('\n', ' ').replace('|', '/')));
                     }
                 } catch (Exception ignored) { }
                 finally { if (cursor != null) cursor.close(); }
+                exportCalendarMarkdown(rows);
                 final String one = rows.size() > 0 ? rows.get(0) : "Yaklaşan etkinlik yok";
                 final String two = rows.size() > 1 ? rows.get(1) : "";
                 handler.post(() -> {
                     if (destroyed) return;
+                    lastCalendarRefresh = System.currentTimeMillis();
                     agendaOne = one; agendaTwo = two; invalidate();
                 });
             }, "node-calendar").start();
+        }
+
+        void exportCalendarMarkdown(List<String> rows) {
+            File vault = new File("/sdcard/Documents/DAAK-Vault");
+            File temp = new File(vault, ".DAAK Calendar.md.tmp");
+            File target = new File(vault, "DAAK Calendar.md");
+            try {
+                if (!vault.exists() && !vault.mkdirs()) return;
+                StringBuilder body = new StringBuilder();
+                body.append("# DAAK Calendar\n\n");
+                body.append("> Google Calendar'ın Android takvim sağlayıcısından DAAK NODE tarafından salt okunur oluşturulur.\n\n");
+                body.append("Son güncelleme: ").append(new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(new Date())).append("\n\n");
+                if (rows.isEmpty()) body.append("- Yaklaşan etkinlik yok.\n");
+                else for (String row : rows) body.append("- ").append(row).append("\n");
+                FileOutputStream output = new FileOutputStream(temp, false);
+                output.write(body.toString().getBytes("UTF-8")); output.flush(); output.getFD().sync(); output.close();
+                if (target.exists() && !target.delete()) return;
+                if (!temp.renameTo(target)) temp.delete();
+            } catch (Exception ignored) { temp.delete(); }
         }
 
         void refreshWeather(boolean force) {
@@ -927,7 +961,7 @@ public final class MainActivity extends Activity {
             } catch (RuntimeException ignored) { }
         }
         void type(float size, int color, boolean bold) {
-            paint.setTextSize(dp(size)); paint.setColor(color);
+            paint.setTextSize(dp(size * TEXT_SCALE)); paint.setColor(color);
             paint.setTypeface(Typeface.create(mono, bold ? Typeface.BOLD : Typeface.NORMAL));
             paint.setStyle(Paint.Style.FILL); paint.setStrokeWidth(dp(1));
         }
@@ -937,12 +971,23 @@ public final class MainActivity extends Activity {
             c.drawRoundRect(r, dp(radius), dp(radius), paint);
         }
         void center(Canvas c, String text, float x, float y) { c.drawText(text, x - paint.measureText(text) / 2f, y, paint); }
+        String fitText(String text, float maxWidth) {
+            if (text == null) return "";
+            if (paint.measureText(text) <= maxWidth) return text;
+            String suffix = "…";
+            int end = text.length();
+            while (end > 1 && paint.measureText(text.substring(0, end) + suffix) > maxWidth) end--;
+            return text.substring(0, Math.max(1, end)).trim() + suffix;
+        }
         void addHit(RectF rect, String action) { hits.add(new Hit(new RectF(rect), action)); }
         void button(Canvas c, RectF rect, String tag, String title, String subtitle, boolean hot, String action) {
             box(c, rect, 13, hot ? panelHot : panel, hot ? mintDim : line);
-            type(6.5f, hot ? mint : mintDim, true); c.drawText(tag, rect.left + dp(12), rect.top + dp(15), paint);
-            type(10.5f, hot ? mint : soft, true); c.drawText(title, rect.left + dp(12), rect.top + dp(31), paint);
-            type(6.2f, ghost, false); c.drawText(subtitle, rect.left + dp(12), rect.bottom - dp(7), paint);
+            c.save(); c.clipRect(rect);
+            float available = rect.width() - dp(24);
+            type(6.5f, hot ? mint : mintDim, true); c.drawText(fitText(tag, available), rect.left + dp(12), rect.top + dp(15), paint);
+            type(10.5f, hot ? mint : soft, true); c.drawText(fitText(title, available), rect.left + dp(12), rect.top + dp(31), paint);
+            type(6.2f, ghost, false); c.drawText(fitText(subtitle, available), rect.left + dp(12), rect.bottom - dp(7), paint);
+            c.restore();
             addHit(rect, action);
         }
 
@@ -1014,7 +1059,7 @@ public final class MainActivity extends Activity {
 
         void drawTopBar(Canvas c) {
             float w = getWidth();
-            type(8, mintDim, true); c.drawText("DAAK//NODE", dp(16), dp(25), paint);
+            type(8, mintDim, true); c.drawText("DAAK//NODE  v" + BUILD_VERSION, dp(16), dp(25), paint);
             type(13, mint, true); c.drawText(new SimpleDateFormat("HH:mm", Locale.US).format(new Date()), dp(16), dp(45), paint);
             String state = meshIp.equals("OFFLINE") ? "NO MESH" : "TAILNET";
             type(8, meshIp.equals("OFFLINE") ? soft : mint, true);
@@ -1063,7 +1108,7 @@ public final class MainActivity extends Activity {
             type(6.1f, soft, false); c.drawText(trimText(weather, 24), climate.left + dp(10), dp(444), paint); addHit(climate, "WEATHER");
 
             RectF agenda = new RectF(left, dp(463), right, dp(513));
-            box(c, agenda, 12, panel, line); type(7, mint, true); c.drawText("AGENDA // NEXT 7 DAYS", agenda.left + dp(10), dp(481), paint);
+            box(c, agenda, 12, panel, line); type(7, mint, true); c.drawText("GOOGLE CALENDAR // NEXT", agenda.left + dp(10), dp(481), paint);
             type(6.2f, soft, false); c.drawText(trimText(agendaOne, 49), agenda.left + dp(10), dp(502), paint); addHit(agenda, "CALENDAR");
 
             type(7, mintDim, true); c.drawText("// PINNED // 2 × 3", left, dp(535), paint);
@@ -1173,6 +1218,9 @@ public final class MainActivity extends Activity {
         String panelTitle() {
             if (panelKind.equals("MAIL")) return "MAIL // READ ONLY";
             if (panelKind.equals("WHATSAPP")) return "WHATSAPP // TASK ROUTER";
+            if (panelKind.equals("MUSIC")) return "MUSIC // LOCAL + STREAM";
+            if (panelKind.equals("POWER_LOLILE")) return "POWER // LOLILE WINDOWS";
+            if (panelKind.equals("POWER_MAC")) return "POWER // MY MAC";
             return "daakREMEMBER // TAILSYNC";
         }
 
@@ -1180,7 +1228,24 @@ public final class MainActivity extends Activity {
             if (panelKind.equals("MAIL")) return "SON 24 SAAT • GÖNDERME YETKİSİ YOK";
             if (panelKind.equals("WHATSAPP")) return NodeStore.whatsAppAutomationEnabled(MainActivity.this)
                     ? "ACTIONABLE ONLY • AUTO TASKS ON" : "AUTO TASKS OFF";
+            if (panelKind.equals("MUSIC")) return "AUXIO LOCAL • OFFICIAL STREAMING APPS";
+            if (panelKind.startsWith("POWER_")) return "TAILNET SSH • WAKE-ON-LAN";
             return rememberOpenCount + " AÇIK NOT • TAILNET ONLY";
+        }
+
+        String panelPrimaryLabel() {
+            if (panelKind.equals("MAIL")) return "GMAIL";
+            if (panelKind.equals("WHATSAPP")) return "WHATSAPP";
+            if (panelKind.equals("MUSIC")) return "YT MUSIC";
+            if (panelKind.startsWith("POWER_")) return "WAKE";
+            return "NEW NOTE";
+        }
+
+        String panelSecondaryLabel() {
+            if (panelKind.equals("REMEMBER")) return "REFRESH";
+            if (panelKind.equals("MUSIC")) return "AUXIO";
+            if (panelKind.startsWith("POWER_")) return "SHUTDOWN";
+            return "FILTER";
         }
 
         void drawInfoPanel(Canvas c) {
@@ -1209,14 +1274,16 @@ public final class MainActivity extends Activity {
             c.restore();
 
             float gap = dp(8), buttonW = (right - left - gap * 2f) / 3f;
-            String primary = panelKind.equals("MAIL") ? "THUNDERBIRD" : panelKind.equals("WHATSAPP") ? "WHATSAPP" : "NEW NOTE";
-            String secondary = panelKind.equals("REMEMBER") ? "REFRESH" : "FILTER";
+            String primary = panelPrimaryLabel();
+            String secondary = panelSecondaryLabel();
             RectF first = new RectF(left, actionTop, left + buttonW, bottom);
             RectF second = new RectF(left + buttonW + gap, actionTop, left + buttonW * 2f + gap, bottom);
             RectF close = new RectF(left + buttonW * 2f + gap * 2f, actionTop, right, bottom);
             box(c, first, 12, panelHot, mintDim); type(6.5f, mint, true); center(c, primary, first.centerX(), first.centerY() + dp(2)); addHit(first, "PANEL_PRIMARY");
             box(c, second, 12, panel, line); type(6.5f, soft, true); center(c, secondary, second.centerX(), second.centerY() + dp(2)); addHit(second, "PANEL_SECONDARY");
-            box(c, close, 12, panel, line); type(6.5f, soft, true); center(c, "CLOSE", close.centerX(), close.centerY() + dp(2)); addHit(close, "PANEL_CLOSE");
+            String tertiary = panelKind.equals("MUSIC") ? "SPOTIFY" : "CLOSE";
+            box(c, close, 12, panel, line); type(6.5f, soft, true); center(c, tertiary, close.centerX(), close.centerY() + dp(2));
+            addHit(close, panelKind.equals("MUSIC") ? "PANEL_TERTIARY" : "PANEL_CLOSE");
         }
 
         void drawInfoPanelLandscape(Canvas c) {
@@ -1227,10 +1294,13 @@ public final class MainActivity extends Activity {
             type(7, mintDim, true); c.drawText("// DAAK INTELLIGENCE", left + dp(14), top + dp(24), paint);
             type(13, mint, true); c.drawText(panelTitle(), left + dp(14), top + dp(51), paint);
             type(6, soft, true); c.drawText(panelStatus(), left + dp(14), top + dp(73), paint);
-            String primary = panelKind.equals("MAIL") ? "THUNDERBIRD" : panelKind.equals("WHATSAPP") ? "WHATSAPP" : "NEW NOTE";
+            String primary = panelPrimaryLabel();
             button(c, new RectF(left + dp(12), top + dp(91), left + side - dp(2), top + dp(144)), "OPEN", primary, "PRIVATE ACTION", true, "PANEL_PRIMARY");
-            button(c, new RectF(left + dp(12), top + dp(152), left + side - dp(2), top + dp(205)), "TOOLS", panelKind.equals("REMEMBER") ? "REFRESH" : "FILTER", "LOCAL SETTINGS", false, "PANEL_SECONDARY");
-            button(c, new RectF(left + dp(12), top + dp(213), left + side - dp(2), bottom - dp(12)), "BACK", "CLOSE", "RETURN HOME", false, "PANEL_CLOSE");
+            button(c, new RectF(left + dp(12), top + dp(152), left + side - dp(2), top + dp(205)), "TOOLS", panelSecondaryLabel(), "LOCAL SETTINGS", false, "PANEL_SECONDARY");
+            button(c, new RectF(left + dp(12), top + dp(213), left + side - dp(2), bottom - dp(12)),
+                    panelKind.equals("MUSIC") ? "STREAM" : "BACK", panelKind.equals("MUSIC") ? "SPOTIFY" : "CLOSE",
+                    panelKind.equals("MUSIC") ? "OFFICIAL APP" : "RETURN HOME", false,
+                    panelKind.equals("MUSIC") ? "PANEL_TERTIARY" : "PANEL_CLOSE");
             float rowH = dp(44);
             c.save(); c.clipRect(listLeft, top + dp(12), right - dp(12), bottom - dp(12));
             if (panelItems.isEmpty()) { type(8, ghost, false); c.drawText("Yeni kayıt yok • rahat ol.", listLeft + dp(12), top + dp(40), paint); }
@@ -1249,7 +1319,7 @@ public final class MainActivity extends Activity {
             float left = dp(16), right = getWidth() - dp(16), top = dp(67), bottom = getHeight() - dp(58), gap = dp(8);
             String[] lines = {
                     "CODEX → çalışma alanı seç", "LOLILE → smb://lolile/kurek", "REMEMBER → Mac TailSync", "RM-OS → Obsidian Vault",
-                    "MAIL → 5+ hesap salt okunur", "AGENDA → Android Calendar", "VAULT → biyometri/PIN", "APPS → ara ve çalıştır"
+                    "MAIL → Gmail + hesaplar salt okunur", "AGENDA → Google Calendar", "VAULT → biyometri/PIN", "APPS → ara ve çalıştır"
             };
             float colW = (right - left - gap * 3f) / 4f, rowH = (bottom - top - gap) / 2f;
             for (int i = 0; i < lines.length; i++) {
@@ -1287,17 +1357,25 @@ public final class MainActivity extends Activity {
                         left + col * (half + gap) + half, top + row * (h + gap) + h);
                 button(c, r, "GOOGLE", names[i], "OPEN DEVICE LIST", i < 2, "REMOTE_CONNECT:" + i);
             }
-            RectF configure = new RectF(left, top + dp(208), right, top + dp(278));
+            RectF configure = new RectF(left, top + dp(208), right, top + dp(266));
             button(c, configure, "GOOGLE", "REMOTE DEVICES", "SIGN IN / DEVICE LIST", false, "REMOTE_CONFIG");
-            type(7, ghost, false); c.drawText("Google hesabın → cihazı seç → touchpad / touch controls", left, top + dp(304), paint);
+            RectF powerLolie = new RectF(left, top + dp(274), left + half, top + dp(334));
+            RectF powerMac = new RectF(left + half + gap, top + dp(274), right, top + dp(334));
+            button(c, powerLolie, "POWER", "LOLILE", "WOL / SHUTDOWN", true, "POWER_LOLILE");
+            button(c, powerMac, "POWER", "MY MAC", "WOL / SHUTDOWN", false, "POWER_MAC");
+            type(7, ghost, false); c.drawText("Google hesabın → cihazı seç → touchpad / touch controls", left, top + dp(355), paint);
         }
 
         void drawRemoteLandscape(Canvas c) {
             float left = dp(16), right = getWidth() - dp(16), top = dp(67), bottom = getHeight() - dp(58), gap = dp(8);
             String[] names = {"LOLILE WINDOWS", "MY MAC", "BEDIRHAN MAC", "BEDIRHAN WINDOWS"};
             float side = dp(180), listLeft = left + side + gap;
-            RectF configure = new RectF(left, top, left + side, bottom);
+            RectF configure = new RectF(left, top, left + side, top + (bottom - top) * 0.48f);
             button(c, configure, "GOOGLE", "REMOTE HUB", "SIGN IN / DEVICE LIST", true, "REMOTE_CONFIG");
+            RectF powerLolie = new RectF(left, configure.bottom + gap, left + (side - gap) / 2f, bottom);
+            RectF powerMac = new RectF(powerLolie.right + gap, configure.bottom + gap, left + side, bottom);
+            button(c, powerLolie, "PWR", "LOLILE", "WOL / OFF", true, "POWER_LOLILE");
+            button(c, powerMac, "PWR", "MAC", "WOL / OFF", false, "POWER_MAC");
             float cell = (right - listLeft - gap) / 2f, h = (bottom - top - gap) / 2f;
             for (int i = 0; i < names.length; i++) {
                 int row = i / 2, col = i % 2;
@@ -1409,7 +1487,7 @@ public final class MainActivity extends Activity {
                     "APPS   → Tüm uygulamalar; dokun, ara, kaydır.",
                     "VAULT  → Kritik komutlar için 90 sn biyometrik izin.",
                     "MESH   → İnternet portu yok; Tailnet cihazları erişir.",
-                    "MAIL   → Salt okunur özet; gönderim daima açık onay.",
+                    "MAIL   → Gmail + Thunderbird salt okunur özet.",
                     "OLED   → Arayüz kayar; 2/5 dk kararır, 10 dk siyah olur."
             };
             float y = dp(121);
@@ -1877,6 +1955,51 @@ public final class MainActivity extends Activity {
             openInfoPanel("MAIL", rows);
         }
 
+        void showMusicPanel() {
+            ArrayList<String> rows = new ArrayList<String>();
+            rows.add("YOUTUBE MUSIC • streaming + Premium offline downloads");
+            rows.add("AUXIO • private local music library");
+            rows.add("SPOTIFY • official app shortcut");
+            rows.add("YouTube downloads stay encrypted inside YouTube Music");
+            openInfoPanel("MUSIC", rows);
+        }
+
+        void launchOrStore(String packageName) {
+            Intent launch = getPackageManager().getLaunchIntentForPackage(packageName);
+            if (launch != null) { launchPackage(packageName); return; }
+            try {
+                Intent store = new Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=" + packageName));
+                store.setPackage("com.android.vending"); startActivity(store);
+            } catch (RuntimeException error) {
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=" + packageName)));
+            }
+        }
+
+        void showPowerPanel(String device) {
+            ArrayList<String> rows = new ArrayList<String>();
+            String key = device.equals("lolile") ? "lolile_wol_mac" : "mac_wol_mac";
+            String configured = nodeConfig(key, "").trim();
+            rows.add(configured.length() == 0 ? "WOL MAC NOT CONFIGURED • config.properties" : "WOL MAC CONFIGURED • PRIVATE DEVICE CONFIG");
+            rows.add("WAKE sends a LAN magic packet through Termux");
+            rows.add("SHUTDOWN requires biometric approval + key-only SSH");
+            openInfoPanel(device.equals("lolile") ? "POWER_LOLILE" : "POWER_MAC", rows);
+        }
+
+        void runPower(String operation) {
+            message = "POWER // " + operation.toUpperCase(Locale.US); invalidate();
+            runTermuxRaw("exec ~/.shortcuts/daak-power " + operation, true, null);
+            toast("Power command sent: " + operation);
+        }
+
+        void confirmShutdown(String device) {
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("DAAK // POWER")
+                    .setMessage((device.equals("lolile") ? "Lolie Windows" : "Mac") + " tamamen kapatılsın mı?")
+                    .setPositiveButton("SHUTDOWN", (d, which) -> guarded(() -> runPower(device + "-shutdown")))
+                    .setNegativeButton("İPTAL", null).create();
+            showDaakDialog(dialog);
+        }
+
         void showMailFilters() {
             SharedPreferences prefs = getSharedPreferences(NodeStore.PREFS, 0);
             final EditText input = new EditText(MainActivity.this);
@@ -1983,15 +2106,26 @@ public final class MainActivity extends Activity {
         }
 
         void panelPrimary() {
-            if (panelKind.equals("MAIL")) launchPackage("net.thunderbird.android");
+            if (panelKind.equals("MAIL")) launchOrStore("com.google.android.gm");
             else if (panelKind.equals("WHATSAPP")) launchPackage("com.whatsapp");
+            else if (panelKind.equals("MUSIC")) launchOrStore("com.google.android.apps.youtube.music");
+            else if (panelKind.equals("POWER_LOLILE")) guarded(() -> runPower("lolile-wake"));
+            else if (panelKind.equals("POWER_MAC")) guarded(() -> runPower("mac-wake"));
             else showRememberCapture();
         }
 
         void panelSecondary() {
             if (panelKind.equals("MAIL")) showMailFilters();
             else if (panelKind.equals("WHATSAPP")) showWhatsAppSettings();
+            else if (panelKind.equals("MUSIC")) launchPackage("org.oxycblt.auxio");
+            else if (panelKind.equals("POWER_LOLILE")) confirmShutdown("lolile");
+            else if (panelKind.equals("POWER_MAC")) confirmShutdown("mac");
             else { refreshRemember(); handler.postDelayed(this::showRememberPanel, 650L); }
+        }
+
+        void panelTertiary() {
+            if (panelKind.equals("MUSIC")) launchOrStore("com.spotify.music");
+            else showMode(HOME);
         }
 
         void showRememberCapture() {
@@ -2023,14 +2157,16 @@ public final class MainActivity extends Activity {
                     "RM-OS ANA SAYFA",
                     "RM-OS CAPTURE // YENİ NOT",
                     "RM-OS SENKRON DURUMU",
-                    "daakREMEMBER"
+                    "daakREMEMBER",
+                    "DAAK CALENDAR"
             };
             new AlertDialog.Builder(MainActivity.this).setTitle("RM-OS // KNOWLEDGE FABRIC")
                     .setItems(options, (dialog, which) -> {
                         if (which == 0) openObsidianFile("RM-OS/README.md");
                         else if (which == 1) openObsidianFile("RM-OS Capture.md");
                         else if (which == 2) openObsidianFile("RM-OS Sync Status.md");
-                        else launchObsidian();
+                        else if (which == 3) launchObsidian();
+                        else openObsidianFile("DAAK Calendar.md");
                     })
                     .setNegativeButton("KAPAT", null).show();
         }
@@ -2140,8 +2276,12 @@ public final class MainActivity extends Activity {
             else if (a.equals("SOUND")) showNotificationSoundPanel();
             else if (a.equals("PINS")) showPinnedManager();
             else if (a.equals("WHATSAPP")) showWhatsAppPanel();
+            else if (a.equals("MUSIC")) showMusicPanel();
+            else if (a.equals("POWER_LOLILE")) showPowerPanel("lolile");
+            else if (a.equals("POWER_MAC")) showPowerPanel("mac");
             else if (a.equals("PANEL_PRIMARY")) panelPrimary();
             else if (a.equals("PANEL_SECONDARY")) panelSecondary();
+            else if (a.equals("PANEL_TERTIARY")) panelTertiary();
             else if (a.equals("PANEL_CLOSE")) showMode(HOME);
             else if (a.equals("LOLILE_HUB")) guarded(() -> launchLolileHub());
             else if (a.equals("DICTATE")) startDictation();
@@ -2151,7 +2291,7 @@ public final class MainActivity extends Activity {
             else if (a.equals("CALENDAR")) {
                 if (checkSelfPermission("android.permission.READ_CALENDAR") != PackageManager.PERMISSION_GRANTED)
                     requestPermissions(new String[]{"android.permission.READ_CALENDAR"}, CALENDAR_PERMISSION_REQUEST);
-                else launchPackage("org.fossify.calendar");
+                else launchOrStore("com.google.android.calendar");
             }
             else if (a.equals("DISK_REFRESH")) refreshDiskIndex();
             else if (a.equals("DISK_UP")) diskUp();

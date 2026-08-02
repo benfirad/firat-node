@@ -4,3 +4,12 @@ mac_host=your-mac.tailnet.example
 lolile_host=your-windows-node.tailnet.example
 # Optional; defaults to mac_host. daakREMEMBER listens on Tailnet TCP 45831.
 remember_host=your-mac.tailnet.example
+
+# Optional one-tap power controls. WOL requires the wired Ethernet MAC and a
+# broadcast address reachable from the phone's current LAN.
+lolile_wol_mac=AA:BB:CC:DD:EE:FF
+lolile_wol_broadcast=192.168.1.255
+lolile_ssh=lolile
+mac_wol_mac=
+mac_wol_broadcast=192.168.1.255
+mac_ssh=firat-mac

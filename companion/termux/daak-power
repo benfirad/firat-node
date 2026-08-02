@@ -1,0 +1,52 @@
+#!/data/data/com.termux/files/usr/bin/sh
+set -eu
+
+config=/sdcard/Download/daak-node/config.properties
+
+read_config() {
+    key=$1
+    fallback=$2
+    if [ -r "$config" ]; then
+        value=$(sed -n "s/^${key}=//p" "$config" | tail -n 1 | tr -d '\r')
+        [ -n "$value" ] && { printf '%s' "$value"; return; }
+    fi
+    printf '%s' "$fallback"
+}
+
+wake() {
+    device=$1
+    mac=$(read_config "${device}_wol_mac" "")
+    broadcast=$(read_config "${device}_wol_broadcast" "255.255.255.255")
+    [ -n "$mac" ] || { echo "Missing ${device}_wol_mac in $config" >&2; exit 2; }
+    python - "$mac" "$broadcast" <<'PY'
+import re, socket, sys
+mac = re.sub(r"[^0-9A-Fa-f]", "", sys.argv[1])
+if len(mac) != 12:
+    raise SystemExit("Invalid WOL MAC address")
+packet = b"\xff" * 6 + bytes.fromhex(mac) * 16
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+s.sendto(packet, (sys.argv[2], 9))
+print("WOL packet sent")
+PY
+}
+
+shutdown_host() {
+    device=$1
+    if [ "$device" = "lolile" ]; then
+        target=$(read_config lolile_ssh lolile)
+        remote_command='shutdown /s /t 0'
+    else
+        target=$(read_config mac_ssh firat-mac)
+        remote_command='sudo -n shutdown -h now'
+    fi
+    exec ssh -o BatchMode=yes -o ConnectTimeout=8 "$target" "$remote_command"
+}
+
+case "${1:-}" in
+    lolile-wake) wake lolile ;;
+    mac-wake) wake mac ;;
+    lolile-shutdown) shutdown_host lolile ;;
+    mac-shutdown) shutdown_host mac ;;
+    *) echo "Usage: daak-power {lolile-wake|mac-wake|lolile-shutdown|mac-shutdown}" >&2; exit 64 ;;
+esac
