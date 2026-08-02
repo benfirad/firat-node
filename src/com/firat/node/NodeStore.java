@@ -220,6 +220,7 @@ final class NodeStore {
 
     static void schedule(Context context) {
         ensureChannel(context);
+        BookBackupJobService.schedule(context);
         AlarmManager alarm = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
         if (alarm == null) return;
         scheduleOne(context, alarm, ACTION_HOURLY, 701, nextHour());

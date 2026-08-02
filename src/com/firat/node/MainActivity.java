@@ -49,6 +49,7 @@ import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.provider.Settings;
 import android.provider.CalendarContract;
+import android.provider.DocumentsContract;
 import android.provider.MediaStore;
 import android.net.Uri;
 import android.util.Base64;
@@ -56,6 +57,7 @@ import android.util.Log;
 import android.view.MotionEvent;
 import android.view.VelocityTracker;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
@@ -63,7 +65,9 @@ import android.view.animation.PathInterpolator;
 import android.webkit.MimeTypeMap;
 import android.speech.RecognizerIntent;
 import android.widget.EditText;
+import android.widget.ListView;
 import android.widget.OverScroller;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
@@ -94,7 +98,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public final class MainActivity extends Activity {
-    private static final String BUILD_VERSION = "6.9.0";
+    private static final String BUILD_VERSION = "6.9.1";
     private static final int TERMUX_PERMISSION_REQUEST = 73;
     private static final int CALENDAR_PERMISSION_REQUEST = 74;
     private static final int LOCATION_PERMISSION_REQUEST = 75;
@@ -1746,11 +1750,13 @@ public final class MainActivity extends Activity {
         void drawDiskLandscape(Canvas c) {
             float left = dp(16), right = getWidth() - dp(16), top = dp(67), bottom = getHeight() - dp(58), gap = dp(8);
             float side = dp(190), listLeft = left + side + gap;
-            float sideHalf = (bottom - top - gap) / 2f;
-            RectF back = new RectF(left, top, left + side, top + sideHalf);
-            RectF refresh = new RectF(left, top + sideHalf + gap, left + side, bottom);
+            float sideThird = (bottom - top - gap * 2f) / 3f;
+            RectF back = new RectF(left, top, left + side, top + sideThird);
+            RectF refresh = new RectF(left, top + sideThird + gap, left + side, top + sideThird * 2f + gap);
+            RectF backup = new RectF(left, top + sideThird * 2f + gap * 2f, left + side, bottom);
             button(c, back, "BACK", "UP ONE LEVEL", trimText(diskPath, 22), false, "DISK_UP");
             button(c, refresh, "SMB3", "REFRESH", diskState + " • TAILNET", true, "DISK_REFRESH");
+            button(c, backup, "LOCAL", "BOOK BACKUP", "OFFLINE COPY", false, "DISK_BACKUP");
             float colW = (right - listLeft - gap) / 2f, rowH = dp(42);
             type(7, diskLoading ? mint : soft, false); c.drawText(trimText(diskMessage, 68), listLeft, top + dp(10), paint);
             top += dp(16);
@@ -1763,7 +1769,7 @@ public final class MainActivity extends Activity {
                     if (y + rowH < listTop || y > bottom) continue;
                     RectF r = new RectF(x, y, x + colW, y + rowH - dp(3)); box(c, r, 7, panel, line);
                     String item = diskItems.get(i); type(7, item.startsWith("[D]") ? mint : soft, item.startsWith("[D]")); c.drawText(trimText(item, 34), x + dp(9), y + dp(25), paint);
-                    if (r.top >= listTop && r.bottom <= bottom) addHit(r, "DISK_ITEM:" + i);
+                    if (r.top >= listTop && r.bottom <= bottom) addHit(r, diskItemAction(item));
                 }
                 c.restore();
             }
@@ -1823,11 +1829,13 @@ public final class MainActivity extends Activity {
             float left = dp(16), right = getWidth() - dp(16);
             type(17, mint, true); c.drawText("LOLILE // " + trimText(diskPath, 27), left, dp(88), paint);
             type(7, soft, false); c.drawText("TAILSCALE • SMB3 ENCRYPTED • " + diskState, left, dp(107), paint);
-            float gap = dp(8), half = (right - left - gap) / 2f;
-            RectF back = new RectF(left, dp(120), left + half, dp(180));
-            RectF refresh = new RectF(left + half + gap, dp(120), right, dp(180));
+            float gap = dp(7), third = (right - left - gap * 2f) / 3f;
+            RectF back = new RectF(left, dp(120), left + third, dp(180));
+            RectF refresh = new RectF(left + third + gap, dp(120), left + third * 2f + gap, dp(180));
+            RectF backup = new RectF(left + third * 2f + gap * 2f, dp(120), right, dp(180));
             button(c, back, "BACK", "UP ONE LEVEL", "NATIVE BROWSER", false, "DISK_UP");
             button(c, refresh, "SMB3", "REFRESH", "PRIVATE TAILNET", true, "DISK_REFRESH");
+            button(c, backup, "LOCAL", "BOOKS", "OFFLINE BACKUP", false, "DISK_BACKUP");
             type(7, diskLoading ? mint : soft, false); c.drawText(trimText(diskMessage, 48), left, dp(199), paint);
             float listTop = dp(210), listBottom = getHeight() - dp(96), y = listTop - diskScroll;
             if (diskItems.isEmpty()) {
@@ -1841,7 +1849,7 @@ public final class MainActivity extends Activity {
                     String item = diskItems.get(i);
                     type(9, item.startsWith("[D]") ? mint : soft, item.startsWith("[D]"));
                     c.drawText(item, left + dp(10), y + dp(27), paint);
-                    if (row.top >= listTop && row.bottom <= listBottom) addHit(row, "DISK_ITEM:" + i);
+                    if (row.top >= listTop && row.bottom <= listBottom) addHit(row, diskItemAction(item));
                     y += dp(46);
                 }
                 c.restore();
@@ -1948,34 +1956,46 @@ public final class MainActivity extends Activity {
             invalidate(); return true;
         }
 
-        void openDiskItem(int index) {
-            if (index < 0 || index >= diskItems.size()) return;
-            String item = diskItems.get(index);
+        String diskItemAction(String item) {
+            String snapshot = diskPath + "\u0000" + item;
+            return "DISK_ITEM64:" + Base64.encodeToString(snapshot.getBytes(Charset.forName("UTF-8")),
+                    Base64.NO_WRAP | Base64.URL_SAFE);
+        }
+
+        void openDiskItemSnapshot(String encoded) {
+            final String snapshot;
+            try {
+                snapshot = new String(Base64.decode(encoded, Base64.NO_WRAP | Base64.URL_SAFE),
+                        Charset.forName("UTF-8"));
+            } catch (RuntimeException error) { return; }
+            int separator = snapshot.indexOf('\u0000');
+            if (separator < 0) return;
+            String sourcePath = snapshot.substring(0, separator);
+            String item = snapshot.substring(separator + 1);
+            if (!(sourcePath.equals(DISK_ROOT) || sourcePath.startsWith(DISK_ROOT + "/")) ||
+                    !(item.startsWith("[D] ") || item.startsWith("[F] "))) return;
             String name = item.length() > 4 ? item.substring(4) : "";
             if (item.startsWith("[D] ")) {
-                if (!diskPath.endsWith("/")) diskPath += "/";
-                diskPath += name;
+                diskRequestToken++;
+                diskPath = sourcePath + (sourcePath.endsWith("/") ? "" : "/") + name;
                 diskItems.clear();
                 diskScroll = 0;
                 refreshDiskIndex();
-            } else showDiskFileActions(name);
+            } else showDiskFileActions(sourcePath, name);
         }
 
-        void showDiskFileActions(final String name) {
-            String[] options = {"ÖNİZLE // ŞİFRELİ STREAM", "İNDİR VE AÇ"};
+        void showDiskFileActions(final String sourcePath, final String name) {
             AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
                     .setTitle("KUREK // " + trimText(name, 38))
                     .setMessage("Önizleme dosyayı telefonda kalıcı olarak kaydetmez; veri yalnız görüntülenirken Tailnet üzerinden akar.")
-                    .setItems(options, (d, which) -> {
-                        if (which == 0) previewDiskFile(name);
-                        else downloadDiskFile(name);
-                    })
+                    .setPositiveButton("ÖNİZLE", (d, which) -> previewDiskFile(sourcePath, name))
+                    .setNeutralButton("İNDİR", (d, which) -> downloadDiskFile(sourcePath, name))
                     .setNegativeButton("İPTAL", null).create();
             showDaakDialog(dialog);
         }
 
-        void previewDiskFile(String name) {
-            String fullPath = diskPath + (diskPath.endsWith("/") ? "" : "/") + name;
+        void previewDiskFile(String sourcePath, String name) {
+            String fullPath = sourcePath + (sourcePath.endsWith("/") ? "" : "/") + name;
             String encoded = Base64.encodeToString(fullPath.getBytes(Charset.forName("UTF-8")), Base64.NO_WRAP);
             long token = System.currentTimeMillis();
             diskMessage = "Streaming preview • " + trimText(name, 24);
@@ -2031,8 +2051,8 @@ public final class MainActivity extends Activity {
             }
         }
 
-        void downloadDiskFile(String name) {
-            String fullPath = diskPath + (diskPath.endsWith("/") ? "" : "/") + name;
+        void downloadDiskFile(String sourcePath, String name) {
+            String fullPath = sourcePath + (sourcePath.endsWith("/") ? "" : "/") + name;
             String encoded = Base64.encodeToString(fullPath.getBytes(Charset.forName("UTF-8")), Base64.NO_WRAP);
             long token = System.currentTimeMillis();
             diskMessage = "Downloading " + trimText(name, 25) + "...";
@@ -2104,6 +2124,52 @@ public final class MainActivity extends Activity {
         void openDiskTerminal() {
             String encoded = Base64.encodeToString(diskPath.getBytes(Charset.forName("UTF-8")), Base64.NO_WRAP);
             runTermux("exec ~/.shortcuts/lolile-disk " + encoded, "LOLILE SMB3");
+        }
+
+        void showBookBackupPanel() {
+            File status = new File("/sdcard/Documents/DAAK-Vault/Kitap Backup Status.md");
+            String detail = "Henüz yerel yedek oluşturulmadı. Kaynak yaklaşık 2.79 GiB; otomatik senkron yalnız Wi-Fi ve şarj sırasında çalışır.";
+            if (status.isFile()) {
+                try {
+                    BufferedReader reader = new BufferedReader(new FileReader(status));
+                    StringBuilder text = new StringBuilder();
+                    String lineText;
+                    while ((lineText = reader.readLine()) != null) {
+                        if (lineText.startsWith("- ")) text.append(lineText.substring(2)).append('\n');
+                    }
+                    reader.close();
+                    if (text.length() > 0) detail = text.toString().trim();
+                } catch (Exception ignored) { }
+            }
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("KİTAP MERAKLISINA // LOCAL")
+                    .setMessage(detail)
+                    .setPositiveButton("YEDEKLE", (d, which) -> {
+                        diskMessage = "Book backup started • Wi-Fi / SMB3";
+                        message = "KUREK BOOKS // LOCAL SYNC"; invalidate();
+                        runTermuxRaw("exec ~/.shortcuts/lolile-books-sync", true, null);
+                        toast("Yerel kitap yedeği başladı");
+                    })
+                    .setNeutralButton("YERELİ AÇ", (d, which) -> openBookBackupFolder())
+                    .setNegativeButton("KAPAT", null).create();
+            showDaakDialog(dialog);
+        }
+
+        void openBookBackupFolder() {
+            Uri folder = DocumentsContract.buildDocumentUri("com.android.externalstorage.documents",
+                    "primary:Documents/DAAK-Vault/Kitap Meraklısına");
+            Intent view = new Intent(Intent.ACTION_VIEW).setDataAndType(folder, "inode/directory")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
+                            Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (getPackageManager().getLaunchIntentForPackage("me.zhanghai.android.files") != null)
+                view.setClassName("me.zhanghai.android.files", "me.zhanghai.android.files.filelist.FileListActivity");
+            try {
+                noteExternalLaunch("me.zhanghai.android.files");
+                startActivity(view);
+            } catch (RuntimeException error) {
+                launchPackage("me.zhanghai.android.files");
+                toast("Documents / DAAK-Vault / Kitap Meraklısına");
+            }
         }
 
         void drawDock(Canvas c) {
@@ -2181,6 +2247,25 @@ public final class MainActivity extends Activity {
             int[] buttons = {AlertDialog.BUTTON_POSITIVE, AlertDialog.BUTTON_NEUTRAL, AlertDialog.BUTTON_NEGATIVE};
             for (int which : buttons) if (dialog.getButton(which) != null)
                 dialog.getButton(which).setTextColor(which == AlertDialog.BUTTON_POSITIVE ? mint : soft);
+            ListView list = dialog.getListView();
+            if (list != null) {
+                list.setBackgroundColor(panel);
+                list.setOnHierarchyChangeListener(new ViewGroup.OnHierarchyChangeListener() {
+                    @Override public void onChildViewAdded(View parent, View child) { styleDialogListChild(child); }
+                    @Override public void onChildViewRemoved(View parent, View child) { }
+                });
+                list.post(() -> {
+                    for (int i = 0; i < list.getChildCount(); i++) styleDialogListChild(list.getChildAt(i));
+                });
+            }
+        }
+
+        void styleDialogListChild(View child) {
+            if (child instanceof TextView) ((TextView)child).setTextColor(soft);
+            if (child instanceof ViewGroup) {
+                ViewGroup group = (ViewGroup)child;
+                for (int i = 0; i < group.getChildCount(); i++) styleDialogListChild(group.getChildAt(i));
+            }
         }
 
         void showPinnedManager() {
@@ -2740,8 +2825,9 @@ public final class MainActivity extends Activity {
                 else launchOrStore("com.google.android.calendar");
             }
             else if (a.equals("DISK_REFRESH")) refreshDiskIndex();
+            else if (a.equals("DISK_BACKUP")) showBookBackupPanel();
             else if (a.equals("DISK_UP")) diskUp();
-            else if (a.startsWith("DISK_ITEM:") && !diskLoading) openDiskItem(Integer.parseInt(a.substring(10)));
+            else if (a.startsWith("DISK_ITEM64:")) openDiskItemSnapshot(a.substring(12));
             else if (a.equals("DISK_TERM")) openDiskTerminal();
             else if (a.equals("CODEX")) showMode(CODEX_VIEW);
             else if (a.startsWith("CODEX_RUN:")) launchCodexWorkspace(a.substring(10), "");

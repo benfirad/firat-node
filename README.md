@@ -40,6 +40,7 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Android HOME intents reset the launcher to its real home view, including the system bottom-swipe gesture
 - Three normalized, embedded notification tones with immediate preview and a versioned high-importance Android channel
 - Kurek files can stream through a localhost-only, three-minute encrypted SMB3 preview rendered inline by Fennec/Firefox without a persistent phone copy, or download explicitly for offline use
+- `Kitap Meraklısına` keeps a resumable, non-deleting 2.79 GiB offline mirror under `Documents/DAAK-Vault`; Android JobScheduler runs lightweight six-hour checks only on unmetered Wi-Fi while charging, plus a weekly integrity reconciliation
 - Scrollable Kurek folders with path-stable live refreshes
 - One-tap Fossify Clock alarms and battery-light Plees sleep tracking from the control centre
 - Optional daily update checks with a pinned manifest and mandatory APK SHA-256 verification

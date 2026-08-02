@@ -1,7 +1,7 @@
 {
-  "versionCode": 22,
-  "versionName": "6.9.0",
-  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.9.0/DAAK-NODE.apk",
-  "sha256": "0c6827f0ce0f8c21fcb2617896f00a3f83c0c1947ea7eda4c4792d43e818e27b",
-  "notes": "124/124 portre+yatay UI dokunma testi; gecikmeli biyometri penceresi düzeltmesi; daakLOLILE canlı durum fallback'i; Kurek için Fennec üzerinden kalıcı kopyasız SMB3 stream önizleme."
+  "versionCode": 23,
+  "versionName": "6.9.1",
+  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.9.1/DAAK-NODE.apk",
+  "sha256": "58e7c05f9477ef85c0ad6a507686b1f5492de45c3d33e29f48f8632c0b776c87",
+  "notes": "Kurek satırları sabit dosya yoluna bağlandı ve her dosyada ÖNİZLE/İNDİR seçenekleri gösteriliyor; Kitap Meraklısına için doğrulanmış 2.79 GiB yerel yedek, Android tabanlı Wi-Fi+şarj zamanlayıcısı ve haftalık bütünlük taraması eklendi."
 }
