@@ -2,6 +2,6 @@
   "versionCode": 21,
   "versionName": "6.8.3",
   "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.8.3/DAAK-NODE.apk",
-  "sha256": "7532cc7aa7079afe4df6440fde02dec43564773d295b2fb96db6fa2acb2d61fd",
+  "sha256": "4a30331f1ea361832f19e551aa96095d53504e7893b1b8d1fe48a0df92327273",
   "notes": "46 uygulama 2 tur aç/kapat testinden geçti; Image Toolbox, Material Files ve Google Photos için izin listeli 15 saniyelik root temizleyici eklendi."
 }
