@@ -44,6 +44,7 @@ import android.os.Bundle;
 import android.os.CancellationSignal;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.provider.Settings;
@@ -51,6 +52,7 @@ import android.provider.CalendarContract;
 import android.provider.MediaStore;
 import android.net.Uri;
 import android.util.Base64;
+import android.util.Log;
 import android.view.MotionEvent;
 import android.view.VelocityTracker;
 import android.view.View;
@@ -92,7 +94,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public final class MainActivity extends Activity {
-    private static final String BUILD_VERSION = "6.8.3";
+    private static final String BUILD_VERSION = "6.9.0";
     private static final int TERMUX_PERMISSION_REQUEST = 73;
     private static final int CALENDAR_PERMISSION_REQUEST = 74;
     private static final int LOCATION_PERMISSION_REQUEST = 75;
@@ -138,6 +140,11 @@ public final class MainActivity extends Activity {
         super.onNewIntent(intent);
         setIntent(intent);
         if (nodeView != null && Intent.ACTION_MAIN.equals(intent.getAction())) {
+            pendingProtectedAction = null;
+            if (biometricCancellation != null) {
+                biometricCancellation.cancel();
+                biometricCancellation = null;
+            }
             nodeView.showMode(NodeView.HOME);
         }
     }
@@ -473,6 +480,7 @@ public final class MainActivity extends Activity {
         long mailViewedAt;
         float burnX, burnY;
         long lastInteraction = System.currentTimeMillis();
+        long lastUiTouchUpAt;
         long lastWeatherRefresh, nextDiskRetry, lastObsidianSync, lastCalendarRefresh, lastHolidayRefresh;
         int diskRetryStep;
         boolean active, destroyed, statusRefreshRunning;
@@ -1599,15 +1607,17 @@ public final class MainActivity extends Activity {
 
         void drawHelpLandscape(Canvas c) {
             float left = dp(16), right = getWidth() - dp(16), top = dp(67), bottom = getHeight() - dp(58), gap = dp(8);
-            String[] lines = {
-                    "CODEX → çalışma alanı seç", "LOLILE → smb://lolile/kurek", "REMEMBER → Mac TailSync", "RM-OS → Obsidian Vault",
-                    "MAIL → Gmail + hesaplar salt okunur", "AGENDA → Google Calendar", "VAULT → biyometri/PIN", "APPS → ara ve çalıştır"
+            String[][] cards = {
+                    {"CODEX", "ÇALIŞMA ALANI SEÇ", "CODEX"}, {"LOLILE", "KUREK / SMB3", "DISK"},
+                    {"REM", "DAAK REMEMBER", "REMEMBER"}, {"RM-OS", "OBSIDIAN VAULT", "RMOS"},
+                    {"SEC", "BIOMETRICS", "SET:SECURITY"}, {"SYS", "ANDROID SETTINGS", "SET:SYSTEM"},
+                    {"VPN", "TAILSCALE", "PKG:com.tailscale.ipn"}, {"KEY", "KEY MAPPER", "PKG:io.github.sds100.keymapper"}
             };
             float colW = (right - left - gap * 3f) / 4f, rowH = (bottom - top - gap) / 2f;
-            for (int i = 0; i < lines.length; i++) {
+            for (int i = 0; i < cards.length; i++) {
                 int row = i / 4, colIndex = i % 4;
                 RectF r = new RectF(left + colIndex * (colW + gap), top + row * (rowH + gap), left + colIndex * (colW + gap) + colW, top + row * (rowH + gap) + rowH);
-                box(c, r, 11, panel, line); type(7, i < 4 ? mint : soft, true); c.drawText(trimText(lines[i], 25), r.left + dp(10), r.top + dp(25), paint);
+                button(c, r, cards[i][0], cards[i][1], i < 4 ? "DAAK ACTION" : "SETUP / RECOVERY", i < 4, cards[i][2]);
             }
         }
 
@@ -1836,7 +1846,7 @@ public final class MainActivity extends Activity {
                 }
                 c.restore();
             }
-            type(7, ghost, false); c.drawText("↕ kaydır • klasöre dokun → gez • dosyaya dokun → indir / aç", left, getHeight() - dp(91), paint);
+            type(7, ghost, false); c.drawText("↕ kaydır • klasör → gez • dosya → stream önizle / indir", left, getHeight() - dp(91), paint);
         }
 
         void refreshDiskIndex() {
@@ -1948,7 +1958,77 @@ public final class MainActivity extends Activity {
                 diskItems.clear();
                 diskScroll = 0;
                 refreshDiskIndex();
-            } else downloadDiskFile(name);
+            } else showDiskFileActions(name);
+        }
+
+        void showDiskFileActions(final String name) {
+            String[] options = {"ÖNİZLE // ŞİFRELİ STREAM", "İNDİR VE AÇ"};
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("KUREK // " + trimText(name, 38))
+                    .setMessage("Önizleme dosyayı telefonda kalıcı olarak kaydetmez; veri yalnız görüntülenirken Tailnet üzerinden akar.")
+                    .setItems(options, (d, which) -> {
+                        if (which == 0) previewDiskFile(name);
+                        else downloadDiskFile(name);
+                    })
+                    .setNegativeButton("İPTAL", null).create();
+            showDaakDialog(dialog);
+        }
+
+        void previewDiskFile(String name) {
+            String fullPath = diskPath + (diskPath.endsWith("/") ? "" : "/") + name;
+            String encoded = Base64.encodeToString(fullPath.getBytes(Charset.forName("UTF-8")), Base64.NO_WRAP);
+            long token = System.currentTimeMillis();
+            diskMessage = "Streaming preview • " + trimText(name, 24);
+            message = "KUREK FILE // PREVIEW"; invalidate();
+            runTermuxRaw("exec ~/.shortcuts/lolile-preview " + encoded + " " + token, true, null);
+            handler.postDelayed(() -> pollDiskPreview(token, name, 0), 500L);
+        }
+
+        void pollDiskPreview(final long token, final String name, final int attempt) {
+            File status = new File("/sdcard/Download/daak-lolile-preview-" + token + ".txt");
+            if (status.isFile() && status.length() > 0) {
+                try {
+                    BufferedReader reader = new BufferedReader(new FileReader(status));
+                    String result = reader.readLine(); reader.close(); status.delete();
+                    if (result != null && result.startsWith("[OK] ")) {
+                        Uri url = Uri.parse(result.substring(5).trim());
+                        if (!"http".equals(url.getScheme()) || !"127.0.0.1".equals(url.getHost()) ||
+                                url.getPort() < 1024 || url.getPort() > 65535 ||
+                                url.getPath() == null || !url.getPath().startsWith("/p/")) {
+                            throw new IllegalStateException("unsafe preview URL");
+                        }
+                        diskMessage = "Preview ready • no local copy";
+                        message = "KUREK FILE // STREAMING"; invalidate();
+                        Intent view = new Intent(Intent.ACTION_VIEW, url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        String previewBrowser = getPackageManager().getLaunchIntentForPackage("org.mozilla.fennec_fdroid") != null
+                                ? "org.mozilla.fennec_fdroid"
+                                : getPackageManager().getLaunchIntentForPackage("org.mozilla.firefox") != null
+                                ? "org.mozilla.firefox" : "";
+                        if (previewBrowser.length() == 0) {
+                            toast("Stream önizleme için Fennec veya Firefox gerekli");
+                            diskMessage = "Preview browser missing • install Fennec"; invalidate();
+                            return;
+                        }
+                        view.setPackage(previewBrowser);
+                        noteExternalLaunch(previewBrowser);
+                        startActivity(view);
+                    } else {
+                        diskMessage = "Preview failed • LOLILE offline";
+                        message = "KUREK PREVIEW // ERROR"; invalidate();
+                    }
+                    return;
+                } catch (Exception ignored) {
+                    status.delete();
+                    diskMessage = "Preview rejected • tap to retry";
+                    message = "KUREK PREVIEW // ERROR"; invalidate();
+                    return;
+                }
+            }
+            if (attempt < 39) handler.postDelayed(() -> pollDiskPreview(token, name, attempt + 1), 500L);
+            else {
+                diskMessage = "Preview timeout • LOLILE offline";
+                message = "KUREK PREVIEW // TIMEOUT"; invalidate();
+            }
         }
 
         void downloadDiskFile(String name) {
@@ -2239,10 +2319,31 @@ public final class MainActivity extends Activity {
         }
 
         void launchLolileHub() {
-            try {
-                String host = nodeConfig("lolile_host", "lolile");
-                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("http://" + host + ":17657/")));
-            } catch (RuntimeException error) { toast("daakLOLILE paneli açılamadı"); }
+            final String host = nodeConfig("lolile_host", "lolile");
+            message = "DAAK LOLILE // CHECKING"; invalidate();
+            new Thread(() -> {
+                final boolean online = canConnect(host, 17657);
+                handler.post(() -> {
+                    if (destroyed) return;
+                    if (online) {
+                        try {
+                            message = "DAAK LOLILE // ONLINE"; invalidate();
+                            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("http://" + host + ":17657/")));
+                        } catch (RuntimeException error) { toast("daakLOLILE paneli açılamadı"); }
+                        return;
+                    }
+                    message = "DAAK LOLILE // OFFLINE"; invalidate();
+                    AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
+                            .setTitle("DAAK LOLILE // OFFLINE")
+                            .setMessage("LOLİLE paneli 17657 portunda yanıt vermiyor. Kurek önbelleğini gezebilir veya Chrome Remote Desktop ile bilgisayarı uyandırabilirsin.")
+                            .setPositiveButton("KUREK", (d, which) -> {
+                                showMode(DISK_VIEW); loadCachedDiskIndex(); refreshDiskIndex();
+                            })
+                            .setNeutralButton("REMOTE", (d, which) -> showMode(REMOTE))
+                            .setNegativeButton("KAPAT", null).create();
+                    showDaakDialog(dialog);
+                });
+            }, "node-lolile-hub").start();
         }
 
         void showMailPanel() {
@@ -2559,6 +2660,7 @@ public final class MainActivity extends Activity {
             }
             recycleVelocity(); pressedRect = null; pressGlow = 0f;
             softHaptic();
+            lastUiTouchUpAt = SystemClock.elapsedRealtime();
             for (int i = hits.size() - 1; i >= 0; i--) {
                 Hit hit = hits.get(i);
                 if (hit.rect.contains(x, y)) { animateHit(hit); return true; }
@@ -2598,6 +2700,9 @@ public final class MainActivity extends Activity {
         }
 
         void handle(Hit hit) {
+            String measuredAction = hit.app != null ? "PKG:" + hit.app.packageName : hit.action;
+            long responseMs = lastUiTouchUpAt == 0L ? 0L : SystemClock.elapsedRealtime() - lastUiTouchUpAt;
+            Log.i("DAAK_UI", "action=" + measuredAction + " response_ms=" + responseMs);
             if (hit.app != null) { launchPackage(hit.app.packageName); return; }
             String a = hit.action;
             if (a.equals("HOME")) showMode(HOME);

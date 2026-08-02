@@ -15,7 +15,7 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Native DAAK Codex workspace screen for zero-context, RM-OS hub, phone-source and custom Mac paths
 - Tailnet-only Mac and Windows/Lolie status, SSH and navigable `smb://lolile/kurek` SMB3 workflows
 - Last-known-good Kurek index caching, so transient SMB retries never blank the disk interface
-- daakLOLILE private dashboard integration
+- daakLOLILE private dashboard integration with a live availability check and Kurek/Remote offline recovery
 - Chrome Remote Desktop hub for the Google-account device list and touch-friendly remote control
 - Biometric-gated Lolie/Mac Wake-on-LAN and key-only SSH shutdown controls
 - Google Calendar Provider agenda with a read-only launcher view and an Obsidian Markdown mirror
@@ -39,7 +39,7 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Bottom-edge upward gesture that always returns to the DAAK home screen
 - Android HOME intents reset the launcher to its real home view, including the system bottom-swipe gesture
 - Three normalized, embedded notification tones with immediate preview and a versioned high-importance Android channel
-- Kurek files download over encrypted SMB3 and open in the installed Android document viewer
+- Kurek files can stream through a localhost-only, three-minute encrypted SMB3 preview rendered inline by Fennec/Firefox without a persistent phone copy, or download explicitly for offline use
 - Scrollable Kurek folders with path-stable live refreshes
 - One-tap Fossify Clock alarms and battery-light Plees sleep tracking from the control centre
 - Optional daily update checks with a pinned manifest and mandatory APK SHA-256 verification

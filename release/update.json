@@ -1,7 +1,7 @@
 {
-  "versionCode": 21,
-  "versionName": "6.8.3",
-  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.8.3/DAAK-NODE.apk",
-  "sha256": "4a30331f1ea361832f19e551aa96095d53504e7893b1b8d1fe48a0df92327273",
-  "notes": "46 uygulama 2 tur aç/kapat testinden geçti; Image Toolbox, Material Files ve Google Photos için izin listeli 15 saniyelik root temizleyici eklendi."
+  "versionCode": 22,
+  "versionName": "6.9.0",
+  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.9.0/DAAK-NODE.apk",
+  "sha256": "0c6827f0ce0f8c21fcb2617896f00a3f83c0c1947ea7eda4c4792d43e818e27b",
+  "notes": "124/124 portre+yatay UI dokunma testi; gecikmeli biyometri penceresi düzeltmesi; daakLOLILE canlı durum fallback'i; Kurek için Fennec üzerinden kalıcı kopyasız SMB3 stream önizleme."
 }
