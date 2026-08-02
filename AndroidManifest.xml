@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.firat.node"
-    android:versionCode="11"
-    android:versionName="6.1.2">
+    android:versionCode="12"
+    android:versionName="6.2.0">
 
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="29" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
@@ -50,6 +52,11 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+        <provider
+            android:name=".KurekFileProvider"
+            android:authorities="com.firat.node.kurek"
+            android:exported="false"
+            android:grantUriPermissions="true" />
         <receiver android:name=".NodeAlarmReceiver" android:exported="false" />
         <receiver android:name=".NodeBootReceiver" android:exported="true">
             <intent-filter>

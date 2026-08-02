@@ -28,6 +28,9 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Obsidian deep link into a local `DAAK-Vault`
 - Right-edge launcher gesture into the control centre
 - Bottom-edge upward gesture that always returns to the DAAK home screen
+- Android HOME intents reset the launcher to its real home view, including the system bottom-swipe gesture
+- Built-in three-option notification-sound chooser with immediate preview
+- Kurek files download over encrypted SMB3 and open in the installed Android document viewer
 - One-tap Fossify Clock alarms and battery-light Plees sleep tracking from the control centre
 - Optional daily update checks with a pinned manifest and mandatory APK SHA-256 verification
 
@@ -74,6 +77,7 @@ The build uses only Android SDK command-line tools. The generated APK is debug-s
 - [daakREMEMBER](https://github.com/benfirad/daakREMEMBER)
 - [Obsidian](https://github.com/obsidianmd/obsidian-releases)
 - [FUTO Voice Input](https://github.com/futo-org/voice-input)
+- [FUTO Keyboard](https://github.com/futo-org/android-keyboard)
 - [Chrome Remote Desktop](https://play.google.com/store/apps/details?id=com.google.chromeremotedesktop)
 
 ## Platform note

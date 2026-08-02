@@ -21,6 +21,8 @@ import android.hardware.biometrics.BiometricPrompt;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
+import android.media.Ringtone;
+import android.media.RingtoneManager;
 import android.os.BatteryManager;
 import android.os.Bundle;
 import android.os.CancellationSignal;
@@ -30,6 +32,7 @@ import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.provider.Settings;
 import android.provider.CalendarContract;
+import android.provider.MediaStore;
 import android.net.Uri;
 import android.util.Base64;
 import android.view.MotionEvent;
@@ -37,6 +40,7 @@ import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
+import android.webkit.MimeTypeMap;
 import android.speech.RecognizerIntent;
 import android.widget.EditText;
 import android.widget.Toast;
@@ -105,6 +109,15 @@ public final class MainActivity extends Activity {
             nodeView.startUpdates();
         }
         maybeCheckUpdate(false);
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (nodeView != null && Intent.ACTION_MAIN.equals(intent.getAction()) &&
+                intent.hasCategory(Intent.CATEGORY_HOME)) {
+            nodeView.showMode(NodeView.HOME);
+        }
     }
 
     @Override protected void onPause() {
@@ -379,6 +392,7 @@ public final class MainActivity extends Activity {
         final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         final Typeface mono = Typeface.create("monospace", Typeface.NORMAL);
         final Handler handler = new Handler(Looper.getMainLooper());
+        Ringtone previewRingtone;
         final List<Hit> hits = new ArrayList<Hit>();
         final List<AppEntry> allApps = new ArrayList<AppEntry>();
         final List<AppEntry> shownApps = new ArrayList<AppEntry>();
@@ -448,6 +462,7 @@ public final class MainActivity extends Activity {
         void shutdown() {
             destroyed = true;
             active = false;
+            if (previewRingtone != null) previewRingtone.stop();
             handler.removeCallbacksAndMessages(null);
             clearPendingLocationRequest();
         }
@@ -997,11 +1012,11 @@ public final class MainActivity extends Activity {
             String[][] tiles = {
                     {"VPN", "TAILSCALE", "PKG:com.tailscale.ipn"}, {"PC", "DAAK LOLILE", "LOLILE_HUB"}, {"PIN", "PINNED APPS", "PINS"}, {"KEY", "KEYBOARD", "SET:INPUT"},
                     {"SEC", "BIOMETRICS", "SET:SECURITY"}, {"WA", "WHATSAPP TASKS", "WHATSAPP"}, {"MIC", "DAAK INBOX", "DICTATE"}, {"UP", "UPDATE", "CHECK_UPDATE"},
-                    {"ALM", "FOSSIFY CLOCK", "PKG:org.fossify.clock"}, {"ZZZ", "SLEEP TRACKER", "PKG:hu.vmiklos.plees_tracker"}
+                    {"ALM", "FOSSIFY CLOCK", "PKG:org.fossify.clock"}, {"ZZZ", "SLEEP TRACKER", "PKG:hu.vmiklos.plees_tracker"}, {"SND", "NOTIFY SOUND", "SOUND"}
             };
-            float colW = (right - left - gap * 4f) / 5f, rowH = (bottom - top - gap) / 2f;
+            float colW = (right - left - gap * 3f) / 4f, rowH = (bottom - top - gap * 2f) / 3f;
             for (int i = 0; i < tiles.length; i++) {
-                int row = i / 5, colIndex = i % 5;
+                int row = i / 4, colIndex = i % 4;
                 RectF r = new RectF(left + colIndex * (colW + gap), top + row * (rowH + gap), left + colIndex * (colW + gap) + colW, top + row * (rowH + gap) + rowH);
                 button(c, r, tiles[i][0], tiles[i][1], i == 0 ? meshIp : "OPEN PANEL", i == 7, tiles[i][2]);
             }
@@ -1104,6 +1119,8 @@ public final class MainActivity extends Activity {
             RectF refresh = new RectF(left, top, left + side, bottom);
             button(c, refresh, "SMB3", trimText(diskPath, 22), diskState + " • TAP REFRESH", true, "DISK_REFRESH");
             float colW = (right - listLeft - gap) / 2f, rowH = dp(42);
+            type(7, diskLoading ? mint : soft, false); c.drawText(trimText(diskMessage, 68), listLeft, top + dp(10), paint);
+            top += dp(16);
             if (diskItems.isEmpty()) { type(9, soft, false); c.drawText(diskMessage, listLeft, top + dp(28), paint); }
             else for (int i = 0; i < diskItems.size() && i < 12; i++) {
                 int row = i / 2, colIndex = i % 2; float x = listLeft + colIndex * (colW + gap), y = top + row * rowH;
@@ -1149,7 +1166,8 @@ public final class MainActivity extends Activity {
                     {"PIN", "PINNED APPS", "PINS"}, {"KEY", "KEYBOARD", "SET:INPUT"},
                     {"SEC", "BIOMETRICS", "SET:SECURITY"}, {"WA", "WHATSAPP TASKS", "WHATSAPP"},
                     {"UP", "UPDATE", "CHECK_UPDATE"}, {"MIC", "DAAK INBOX", "DICTATE"},
-                    {"ALM", "FOSSIFY CLOCK", "PKG:org.fossify.clock"}, {"ZZZ", "SLEEP TRACKER", "PKG:hu.vmiklos.plees_tracker"}
+                    {"ALM", "FOSSIFY CLOCK", "PKG:org.fossify.clock"}, {"ZZZ", "SLEEP TRACKER", "PKG:hu.vmiklos.plees_tracker"},
+                    {"SND", "NOTIFY SOUND", "SOUND"}
             };
             float half = (right - left - gap) / 2f, top = dp(124), h = dp(58);
             for (int i = 0; i < tiles.length; i++) {
@@ -1158,7 +1176,7 @@ public final class MainActivity extends Activity {
                         left + col * (half + gap) + half, top + row * (h + gap) + h);
                 button(c, r, tiles[i][0], tiles[i][1], i == 0 ? meshIp : "OPEN PANEL", false, tiles[i][2]);
             }
-            RectF refresh = new RectF(left, top + dp(330), right, top + dp(388));
+            RectF refresh = new RectF(left, top + dp(402), right, top + dp(460));
             button(c, refresh, "SCAN", "REFRESH NODE STATUS", "NO CHANGES • READ ONLY", true, "REFRESH");
         }
 
@@ -1171,7 +1189,8 @@ public final class MainActivity extends Activity {
             RectF refresh = new RectF(left + half + gap, dp(120), right, dp(180));
             button(c, back, "BACK", "UP ONE LEVEL", "NATIVE BROWSER", false, "DISK_UP");
             button(c, refresh, "SMB3", "REFRESH", "PRIVATE TAILNET", true, "DISK_REFRESH");
-            float y = dp(194);
+            type(7, diskLoading ? mint : soft, false); c.drawText(trimText(diskMessage, 48), left, dp(199), paint);
+            float y = dp(210);
             if (diskItems.isEmpty()) {
                 type(9, soft, false); c.drawText(diskMessage, left, y + dp(24), paint);
             } else {
@@ -1183,7 +1202,7 @@ public final class MainActivity extends Activity {
                     c.drawText(item, left + dp(10), y + dp(27), paint); addHit(row, "DISK_ITEM:" + i); y += dp(46);
                 }
             }
-            type(7, ghost, false); c.drawText("Klasöre dokun → gez • dosyaya dokun → güvenli SMB3", left, getHeight() - dp(91), paint);
+            type(7, ghost, false); c.drawText("Klasöre dokun → gez • dosyaya dokun → indir / aç", left, getHeight() - dp(91), paint);
         }
 
         void refreshDiskIndex() {
@@ -1286,7 +1305,68 @@ public final class MainActivity extends Activity {
                 if (!diskPath.endsWith("/")) diskPath += "/";
                 diskPath += name;
                 refreshDiskIndex();
-            } else openDiskTerminal();
+            } else downloadDiskFile(name);
+        }
+
+        void downloadDiskFile(String name) {
+            String fullPath = diskPath + (diskPath.endsWith("/") ? "" : "/") + name;
+            String encoded = Base64.encodeToString(fullPath.getBytes(Charset.forName("UTF-8")), Base64.NO_WRAP);
+            long token = System.currentTimeMillis();
+            diskMessage = "Downloading " + trimText(name, 25) + "...";
+            message = "KUREK FILE // DOWNLOADING"; invalidate();
+            runTermuxRaw("exec ~/.shortcuts/lolile-fetch " + encoded + " " + token, true, null);
+            handler.postDelayed(() -> pollDiskDownload(token, name, 0), 1000L);
+        }
+
+        void pollDiskDownload(final long token, final String name, final int attempt) {
+            File status = new File("/sdcard/Download/daak-lolile-fetch-" + token + ".txt");
+            if (status.isFile() && status.length() > 0) {
+                try {
+                    BufferedReader reader = new BufferedReader(new FileReader(status));
+                    String result = reader.readLine(); reader.close(); status.delete();
+                    if (result != null && result.startsWith("[OK] ")) {
+                        diskMessage = "Downloaded • opening " + trimText(name, 22);
+                        message = "KUREK FILE // READY"; invalidate();
+                        openDownloadedFile(result.substring(5).trim());
+                    } else {
+                        diskMessage = "Download failed • tap file to retry";
+                        message = "KUREK FILE // ERROR"; invalidate();
+                    }
+                    return;
+                } catch (Exception ignored) { }
+            }
+            if (attempt < 50) handler.postDelayed(() -> pollDiskDownload(token, name, attempt + 1), 1000L);
+            else {
+                diskMessage = "Download timeout • tap file to retry";
+                message = "KUREK FILE // TIMEOUT"; invalidate();
+            }
+        }
+
+        String mimeForFile(String path) {
+            int dot = path.lastIndexOf('.');
+            String extension = dot >= 0 ? path.substring(dot + 1).toLowerCase(Locale.US) : "";
+            String mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension);
+            if (mime != null) return mime;
+            if (extension.equals("md") || extension.equals("log") || extension.equals("json") || extension.equals("csv")) return "text/plain";
+            return "application/octet-stream";
+        }
+
+        void openDownloadedFile(String absolutePath) {
+            if (!absolutePath.startsWith("/sdcard/Download/DAAK-Kurek/")) {
+                toast("Güvensiz dosya yolu reddedildi"); return;
+            }
+            File downloaded = new File(absolutePath);
+            Uri document = new Uri.Builder().scheme("content").authority(KurekFileProvider.AUTHORITY)
+                    .appendPath(downloaded.getName()).build();
+            Intent view = new Intent(Intent.ACTION_VIEW).setDataAndType(document, mimeForFile(absolutePath));
+            view.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (getPackageManager().getLaunchIntentForPackage("me.zhanghai.android.files") != null)
+                view.setPackage("me.zhanghai.android.files");
+            try { startActivity(view); }
+            catch (RuntimeException error) {
+                toast("Görüntüleyici bulunamadı • Material Files açılıyor");
+                launchPackage("me.zhanghai.android.files");
+            }
         }
 
         void diskUp() {
@@ -1544,6 +1624,55 @@ public final class MainActivity extends Activity {
                     .setNegativeButton("İPTAL", null).show();
         }
 
+        Uri findNotificationSound(String fileName) {
+            Cursor cursor = null;
+            Uri selected = null;
+            try {
+                cursor = getContentResolver().query(
+                        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                        new String[]{MediaStore.Audio.Media._ID, MediaStore.Audio.Media.DATA},
+                        MediaStore.Audio.Media.DISPLAY_NAME + "=?", new String[]{fileName}, null);
+                while (cursor != null && cursor.moveToNext()) {
+                    selected = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, cursor.getLong(0));
+                    String path = cursor.getString(1);
+                    if (path != null && path.contains("/Notifications/DAAK/")) break;
+                }
+            } catch (Exception ignored) { }
+            finally { if (cursor != null) cursor.close(); }
+            return selected;
+        }
+
+        void applyNotificationSound(String fileName, String label) {
+            if (!Settings.System.canWrite(MainActivity.this)) {
+                try {
+                    startActivity(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                            Uri.parse("package:" + getPackageName())));
+                } catch (RuntimeException ignored) { openSettings(Settings.ACTION_SOUND_SETTINGS); }
+                toast("DAAK NODE için sistem ayarı izni gerekli");
+                return;
+            }
+            Uri sound = findNotificationSound(fileName);
+            if (sound == null) { toast("Ses dosyası bulunamadı: " + fileName); return; }
+            if (!Settings.System.putString(getContentResolver(), Settings.System.NOTIFICATION_SOUND, sound.toString())) {
+                toast("Bildirim sesi değiştirilemedi"); return;
+            }
+            if (previewRingtone != null) previewRingtone.stop();
+            previewRingtone = RingtoneManager.getRingtone(MainActivity.this, sound);
+            if (previewRingtone != null) previewRingtone.play();
+            message = "SOUND // " + label.toUpperCase(Locale.US); invalidate();
+            toast(label + " seçildi ve önizleniyor");
+        }
+
+        void showNotificationSoundPanel() {
+            final String[] labels = {"Terminal Tick — kısa", "DAAK Pulse — yumuşak", "Deep Node — koyu"};
+            final String[] files = {"Terminal-Tick.ogg", "DAAK-Pulse.ogg", "Deep-Node.ogg"};
+            new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("DAAK // BİLDİRİM SESİ")
+                    .setItems(labels, (dialog, which) -> applyNotificationSound(files[which], labels[which]))
+                    .setNeutralButton("SİSTEM SESLERİ", (dialog, which) -> openSettings(Settings.ACTION_SOUND_SETTINGS))
+                    .setNegativeButton("KAPAT", null).show();
+        }
+
         void showRememberPanel() {
             refreshRemember();
             StringBuilder body = new StringBuilder("TAILNET ONLY // ").append(rememberOpenCount).append(" açık not\n\n");
@@ -1641,6 +1770,7 @@ public final class MainActivity extends Activity {
             else if (a.equals("OBSIDIAN")) launchObsidian();
             else if (a.equals("RMOS")) showRmOsPanel();
             else if (a.equals("WEATHER")) showWeatherSetup();
+            else if (a.equals("SOUND")) showNotificationSoundPanel();
             else if (a.equals("PINS")) showPinnedManager();
             else if (a.equals("WHATSAPP")) showWhatsAppPanel();
             else if (a.equals("LOLILE_HUB")) guarded(() -> launchLolileHub());
