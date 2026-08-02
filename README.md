@@ -11,6 +11,7 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Text-first app drawer, searchable launcher and built-in help/control screens
 - Biometric/device-credential vault for Codex, SSH and Debian actions
 - Direct Codex CLI control over Termux + SSH (no API integration in the launcher)
+- Safe terminal link bridge through `daak-open`/`open`, restricted to HTTP(S) and routed to Cromite by default
 - Native DAAK Codex workspace screen for zero-context, RM-OS hub, phone-source and custom Mac paths
 - Tailnet-only Mac and Windows/Lolie status, SSH and navigable `smb://lolile/kurek` SMB3 workflows
 - Last-known-good Kurek index caching, so transient SMB retries never blank the disk interface
@@ -69,6 +70,11 @@ Requirements: macOS/Linux, JDK 8+ and Android SDK platform 29 with build-tools 3
 ./build-apk.sh
 adb install -r DAAK-NODE.apk
 ```
+
+Install `companion/termux/daak-open` into Termux's `$PREFIX/bin` and link it
+into the Debian proot's `/usr/local/bin`. Then use `daak-open example.com` or
+the `open https://example.com` alias from either shell. Pass `--firefox` or
+`--system` when a different Android handler is needed.
 
 The build uses only Android SDK command-line tools. The generated APK is debug-signed for personal installation and is excluded from Git.
 
