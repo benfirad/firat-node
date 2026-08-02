@@ -1,7 +1,7 @@
 {
-  "versionCode": 15,
-  "versionName": "6.5.0",
-  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.5.0/DAAK-NODE.apk",
-  "sha256": "bc1026e234e7a8319884ce91ee38371b7d13e2af0330f380c5317f423d68bde8",
-  "notes": "Tam debug sürümü: boş Kurek klasörü düzeltmesi, atomik SMB indirme, güvenli mail önbelleği, HTTPS ve boyut korumalı güncelleyici, bildirim erişim kısayolu ve launcher geri tuşu koruması."
+  "versionCode": 16,
+  "versionName": "6.6.0",
+  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.6.0/DAAK-NODE.apk",
+  "sha256": "ef4f4e87a9a24b38b8b96d79c3d3eb6f670f57b21563d75988151b4a9adf0856",
+  "notes": "Lilac Purple OLED sürümü: akışkan inertial uygulama kaydırması, basış animasyonları, iki satırlı büyük pinned grid, ana ekranda WhatsApp ve daakREMEMBER, özel DAAK bilgi panelleri ve erişilebilir biyometrik kasa."
 }

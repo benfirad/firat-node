@@ -36,8 +36,10 @@ fi
             if date +%s > "$heartbeat.tmp" && mv -f "$heartbeat.tmp" "$heartbeat"; then
                 termux_uid=$(stat -c %u /data/data/com.termux)
                 termux_gid=$(stat -c %g /data/data/com.termux)
+                termux_context=$(ls -Zd "$termux_home" 2>/dev/null | awk '{print $1}')
                 chown "$termux_uid:$termux_gid" "$heartbeat"
                 chmod 600 "$heartbeat"
+                [ -n "$termux_context" ] && chcon "$termux_context" "$heartbeat" || healthy=0
             else
                 healthy=0
             fi

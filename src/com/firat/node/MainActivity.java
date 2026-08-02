@@ -1,5 +1,8 @@
 package com.firat.node;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.AlertDialog;
@@ -9,6 +12,7 @@ import android.content.ContentUris;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
@@ -39,6 +43,7 @@ import android.provider.MediaStore;
 import android.net.Uri;
 import android.util.Base64;
 import android.view.MotionEvent;
+import android.view.VelocityTracker;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
@@ -47,6 +52,7 @@ import android.view.animation.PathInterpolator;
 import android.webkit.MimeTypeMap;
 import android.speech.RecognizerIntent;
 import android.widget.EditText;
+import android.widget.OverScroller;
 import android.widget.Toast;
 
 import java.io.File;
@@ -393,19 +399,25 @@ public final class MainActivity extends Activity {
     }
 
     private final class NodeView extends View {
-        static final int HOME = 0, APPS = 1, HELP = 2, CONTROL = 3, DISK_VIEW = 4, REMOTE = 5, CODEX_VIEW = 6;
+        static final int HOME = 0, APPS = 1, HELP = 2, CONTROL = 3, DISK_VIEW = 4, REMOTE = 5,
+                CODEX_VIEW = 6, INFO_PANEL = 7;
         static final String DISK_ROOT = "smb://lolile/kurek";
-        final int mint = Color.rgb(120, 247, 212);
-        final int mintDim = Color.rgb(57, 135, 114);
-        final int panel = Color.rgb(5, 12, 10);
-        final int panelHot = Color.rgb(8, 27, 22);
-        final int line = Color.rgb(19, 59, 49);
-        final int soft = Color.rgb(144, 165, 158);
-        final int ghost = Color.rgb(62, 82, 76);
+        // Samsung never published a CSS/Pantone value for S9 Lilac Purple. This palette is
+        // sampled and OLED-adjusted from Samsung's launch render: true black remains black.
+        final int mint = Color.rgb(201, 167, 220);       // #C9A7DC
+        final int mintDim = Color.rgb(128, 96, 154);    // #80609A
+        final int panel = Color.rgb(12, 7, 15);
+        final int panelHot = Color.rgb(27, 14, 34);
+        final int line = Color.rgb(58, 38, 70);
+        final int soft = Color.rgb(184, 168, 193);
+        final int ghost = Color.rgb(91, 72, 101);
         final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         final Typeface mono = Typeface.create("monospace", Typeface.NORMAL);
         final Handler handler = new Handler(Looper.getMainLooper());
+        final OverScroller contentScroller;
         Ringtone previewRingtone;
+        VelocityTracker velocityTracker;
+        ValueAnimator pressAnimator;
         final List<Hit> hits = new ArrayList<Hit>();
         final List<AppEntry> allApps = new ArrayList<AppEntry>();
         final List<AppEntry> shownApps = new ArrayList<AppEntry>();
@@ -418,6 +430,7 @@ public final class MainActivity extends Activity {
         String sshState = "CHECKING", message = "DAAK NODE V6 READY";
         String weather = "TAP TO ENABLE", weatherDetails = "", agendaOne = "Calendar permission required", agendaTwo = "";
         String mailLine = "Connect Thunderbird + notification access";
+        String whatsAppLine = "Görev bildirimi bekleniyor";
         String weatherCity = "";
         String rememberLine = "SYNCING WITH MAC...";
         String diskMessage = "Cached index not loaded";
@@ -425,8 +438,13 @@ public final class MainActivity extends Activity {
         boolean diskLoading;
         int rememberOpenCount;
         boolean rooted, vaultUnlocked;
-        float drawerScroll, diskScroll, downX, downY, lastY;
+        float drawerScroll, diskScroll, panelScroll, downX, downY, lastY;
         boolean moved, wakeOnly;
+        RectF pressedRect;
+        float pressGlow;
+        String panelKind = "";
+        final List<String> panelItems = new ArrayList<String>();
+        long mailViewedAt;
         float burnX, burnY;
         long lastInteraction = System.currentTimeMillis();
         long lastWeatherRefresh, nextDiskRetry, lastObsidianSync;
@@ -466,6 +484,7 @@ public final class MainActivity extends Activity {
 
         NodeView(Context context) {
             super(context);
+            contentScroller = new OverScroller(context);
             setBackgroundColor(Color.BLACK);
             reloadApps();
             refreshCalendar();
@@ -504,6 +523,8 @@ public final class MainActivity extends Activity {
             destroyed = true;
             active = false;
             if (previewRingtone != null) previewRingtone.stop();
+            if (pressAnimator != null) pressAnimator.cancel();
+            if (velocityTracker != null) { velocityTracker.recycle(); velocityTracker = null; }
             handler.removeCallbacksAndMessages(null);
             clearPendingLocationRequest();
         }
@@ -561,8 +582,11 @@ public final class MainActivity extends Activity {
         }
 
         void showMode(int newMode) {
+            if (mode == INFO_PANEL && !panelKind.equals("") && newMode != INFO_PANEL) closeInfoPanel();
             mode = newMode;
             drawerScroll = 0;
+            panelScroll = 0;
+            if (!contentScroller.isFinished()) contentScroller.abortAnimation();
             invalidate();
         }
 
@@ -575,6 +599,7 @@ public final class MainActivity extends Activity {
         boolean isCleanupCandidate(String packageName) {
             String[] keepAlive = {
                     "com.whatsapp", "com.tailscale.ipn", "net.thunderbird.android", "com.termux",
+                    "com.bitchat.droid",
                     "org.futo.inputmethod.latin", "org.futo.voiceinput", "org.oxycblt.auxio",
                     "org.fossify.calendar", "org.fossify.clock", "hu.vmiklos.plees_tracker"
             };
@@ -648,6 +673,8 @@ public final class MainActivity extends Activity {
         void updateMailLine() {
             List<String> rows = NodeStore.recentMail(MainActivity.this, System.currentTimeMillis() - 24L * 60L * 60L * 1000L, 1);
             mailLine = rows.isEmpty() ? "Yeni mail yok • rahat ol" : rows.get(0);
+            List<String> whatsApp = NodeStore.recentWhatsAppTasks(MainActivity.this, 1);
+            whatsAppLine = whatsApp.isEmpty() ? "Yeni görev yok" : whatsApp.get(0);
         }
 
         byte[] rememberRequest(String method, String path, byte[] body) throws Exception {
@@ -694,6 +721,10 @@ public final class MainActivity extends Activity {
                         if (destroyed) return;
                         rememberItems.clear(); rememberItems.addAll(activeItems); rememberOpenCount = openFinal;
                         rememberLine = activeItems.isEmpty() ? "NOT YOK • TAP TO CAPTURE" : openFinal + " OPEN • " + activeItems.get(0).substring(2);
+                        if (mode == INFO_PANEL && panelKind.equals("REMEMBER")) {
+                            panelItems.clear(); panelItems.addAll(activeItems);
+                            panelScroll = Math.min(panelScroll, maxActiveScroll());
+                        }
                         invalidate();
                     });
                 } catch (Exception error) {
@@ -909,9 +940,9 @@ public final class MainActivity extends Activity {
         void addHit(RectF rect, String action) { hits.add(new Hit(new RectF(rect), action)); }
         void button(Canvas c, RectF rect, String tag, String title, String subtitle, boolean hot, String action) {
             box(c, rect, 13, hot ? panelHot : panel, hot ? mintDim : line);
-            type(7, hot ? mint : mintDim, true); c.drawText(tag, rect.left + dp(12), rect.top + dp(17), paint);
-            type(11, hot ? mint : soft, true); c.drawText(title, rect.left + dp(12), rect.top + dp(39), paint);
-            type(7, ghost, false); c.drawText(subtitle, rect.left + dp(12), rect.bottom - dp(10), paint);
+            type(6.5f, hot ? mint : mintDim, true); c.drawText(tag, rect.left + dp(12), rect.top + dp(15), paint);
+            type(10.5f, hot ? mint : soft, true); c.drawText(title, rect.left + dp(12), rect.top + dp(31), paint);
+            type(6.2f, ghost, false); c.drawText(subtitle, rect.left + dp(12), rect.bottom - dp(7), paint);
             addHit(rect, action);
         }
 
@@ -926,6 +957,7 @@ public final class MainActivity extends Activity {
                 else if (mode == CONTROL) drawControlLandscape(c);
                 else if (mode == DISK_VIEW) drawDiskLandscape(c);
                 else if (mode == CODEX_VIEW) drawCodexLandscape(c);
+                else if (mode == INFO_PANEL) drawInfoPanelLandscape(c);
                 else drawRemoteLandscape(c);
                 drawDockLandscape(c);
             } else {
@@ -935,9 +967,11 @@ public final class MainActivity extends Activity {
                 else if (mode == CONTROL) drawControl(c);
                 else if (mode == DISK_VIEW) drawDisk(c);
                 else if (mode == CODEX_VIEW) drawCodex(c);
+                else if (mode == INFO_PANEL) drawInfoPanel(c);
                 else drawRemote(c);
                 drawDock(c);
             }
+            drawPressFeedback(c);
             c.restore();
             int contentAlpha = oledContentAlpha();
             if (contentAlpha < 255) {
@@ -947,16 +981,49 @@ public final class MainActivity extends Activity {
             }
         }
 
+        void drawPressFeedback(Canvas c) {
+            if (pressedRect == null || pressGlow <= 0f) return;
+            float inset = dp(2.5f * pressGlow);
+            RectF animated = new RectF(pressedRect);
+            animated.inset(inset, inset);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(Color.argb((int)(52f * pressGlow), 201, 167, 220));
+            c.drawRoundRect(animated, dp(12), dp(12), paint);
+            paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(dp(1.4f));
+            paint.setColor(Color.argb((int)(220f * pressGlow), 201, 167, 220));
+            c.drawRoundRect(animated, dp(12), dp(12), paint);
+        }
+
+        void animateHit(final Hit hit) {
+            if (pressAnimator != null) pressAnimator.cancel();
+            pressedRect = new RectF(hit.rect); pressGlow = 1f; invalidate();
+            pressAnimator = ValueAnimator.ofFloat(1f, 0f);
+            pressAnimator.setDuration(190L);
+            pressAnimator.setInterpolator(new PathInterpolator(0.2f, 0f, 0f, 1f));
+            pressAnimator.addUpdateListener(animation -> {
+                pressGlow = (Float)animation.getAnimatedValue(); invalidate();
+            });
+            pressAnimator.addListener(new AnimatorListenerAdapter() {
+                @Override public void onAnimationEnd(Animator animation) {
+                    if (pressAnimator == animation) { pressedRect = null; pressAnimator = null; invalidate(); }
+                }
+            });
+            pressAnimator.start();
+            handler.postDelayed(() -> { if (!destroyed) handle(hit); }, 70L);
+        }
+
         void drawTopBar(Canvas c) {
             float w = getWidth();
             type(8, mintDim, true); c.drawText("DAAK//NODE", dp(16), dp(25), paint);
             type(13, mint, true); c.drawText(new SimpleDateFormat("HH:mm", Locale.US).format(new Date()), dp(16), dp(45), paint);
             String state = meshIp.equals("OFFLINE") ? "NO MESH" : "TAILNET";
             type(8, meshIp.equals("OFFLINE") ? soft : mint, true);
-            c.drawText(state, w - dp(105), dp(25), paint);
+            c.drawText(state, w - dp(165), dp(25), paint);
             BatteryManager bm = (BatteryManager)getSystemService(BATTERY_SERVICE);
             int battery = bm == null ? 0 : bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
-            type(8, soft, true); c.drawText("BAT " + battery + "%", w - dp(105), dp(43), paint);
+            type(8, soft, true); c.drawText("BAT " + battery + "%", w - dp(165), dp(43), paint);
+            RectF vault = new RectF(w - dp(77), dp(9), w - dp(42), dp(47));
+            type(6.3f, vaultUnlocked ? mint : mintDim, true); center(c, vaultUnlocked ? "OPEN" : "BIO", vault.centerX(), dp(36)); addHit(vault, "VAULT");
             RectF control = new RectF(w - dp(36), dp(9), w - dp(10), dp(47));
             type(18, mint, true); center(c, "≡", control.centerX(), dp(36)); addHit(control, "CONTROL");
             paint.setColor(line); paint.setStrokeWidth(dp(1)); c.drawLine(dp(16), dp(55), w - dp(16), dp(55), paint);
@@ -964,46 +1031,54 @@ public final class MainActivity extends Activity {
 
         void drawHome(Canvas c) {
             float left = dp(16), right = getWidth() - dp(16), gap = dp(8);
-            RectF terminal = new RectF(left, dp(67), right, dp(192));
+            RectF terminal = new RectF(left, dp(67), right, dp(178));
             box(c, terminal, 16, panel, line);
             type(7, mintDim, true); c.drawText("// LIVE CONTROL PLANE", left + dp(14), dp(86), paint);
             type(9, mint, false);
-            c.drawText("MESH  " + meshIp, left + dp(14), dp(109), paint);
-            c.drawText("MAC " + macState + "  •  LOLILE " + diskState, left + dp(14), dp(132), paint);
-            c.drawText("SSHD " + sshState + "  •  ROOT " + (rooted ? "YES" : "NO"), left + dp(14), dp(155), paint);
-            type(6.8f, soft, true); c.drawText("> " + trimText(message, 43), left + dp(14), dp(178), paint);
+            c.drawText("MESH  " + meshIp, left + dp(14), dp(108), paint);
+            c.drawText("MAC " + macState + "  •  LOLILE " + diskState, left + dp(14), dp(129), paint);
+            c.drawText("SSHD " + sshState + "  •  ROOT " + (rooted ? "YES" : "NO"), left + dp(14), dp(150), paint);
+            type(6.5f, soft, true); c.drawText("> " + trimText(message, 43), left + dp(14), dp(169), paint);
 
-            type(7, mintDim, true); c.drawText("// WORKSPACE", left, dp(211), paint);
+            type(7, mintDim, true); c.drawText("// WORKSPACE", left, dp(197), paint);
             float half = (right - left - gap) / 2f;
-            button(c, new RectF(left, dp(221), left + half, dp(277)), "CLI", "CODEX", "MAC • REAL CLI", true, "CODEX");
-            button(c, new RectF(left + half + gap, dp(221), right, dp(277)), "SMB3", "LOLILE KUREK", "smb://lolile/kurek", true, "DISK");
-            button(c, new RectF(left, dp(285), left + half, dp(341)), "GOOGLE", "REMOTE", "CHROME REMOTE DESKTOP", false, "REMOTE");
-            button(c, new RectF(left + half + gap, dp(285), right, dp(341)), "LINUX", "DEBIAN", "LOCAL PROOT", false, "LOCAL");
+            button(c, new RectF(left, dp(205), left + half, dp(257)), "CLI", "CODEX", "MAC • REAL CLI", true, "CODEX");
+            button(c, new RectF(left + half + gap, dp(205), right, dp(257)), "SMB3", "LOLILE KUREK", "smb://lolile/kurek", true, "DISK");
+            button(c, new RectF(left, dp(265), left + half, dp(317)), "GOOGLE", "REMOTE", "CHROME REMOTE DESKTOP", false, "REMOTE");
+            button(c, new RectF(left + half + gap, dp(265), right, dp(317)), "LINUX", "DEBIAN", "LOCAL PROOT", false, "LOCAL");
 
-            type(7, mintDim, true); c.drawText("// INTELLIGENCE", left, dp(363), paint);
-            RectF mail = new RectF(left, dp(374), left + half, dp(440));
-            box(c, mail, 12, panel, line); type(7, mint, true); c.drawText("MAIL // READ ONLY", mail.left + dp(10), dp(393), paint);
-            type(6.5f, soft, false); c.drawText(trimText(mailLine, 24), mail.left + dp(10), dp(417), paint);
-            type(6, ghost, false); c.drawText("07:30 + HOURLY", mail.left + dp(10), dp(432), paint); addHit(mail, "MAIL");
-            RectF climate = new RectF(left + half + gap, dp(374), right, dp(440));
-            box(c, climate, 12, panel, line); type(7, mint, true); c.drawText("WEATHER", climate.left + dp(10), dp(393), paint);
-            type(6.5f, soft, false); c.drawText(trimText(weather, 23), climate.left + dp(10), dp(414), paint);
-            type(6, mintDim, true); c.drawText(trimText(weatherDetails.length() == 0 ? "OPEN-METEO • 30 MIN" : weatherDetails, 26), climate.left + dp(10), dp(432), paint); addHit(climate, "WEATHER");
-            RectF agenda = new RectF(left, dp(448), right, dp(514));
-            box(c, agenda, 12, panel, line); type(7, mint, true); c.drawText("AGENDA // NEXT 7 DAYS", agenda.left + dp(10), dp(467), paint);
-            type(6.5f, soft, false); c.drawText(trimText(agendaOne, 49), agenda.left + dp(10), dp(489), paint);
-            type(6.2f, ghost, false); c.drawText(trimText(agendaTwo, 52), agenda.left + dp(10), dp(506), paint); addHit(agenda, "CALENDAR");
+            type(7, mintDim, true); c.drawText("// INTELLIGENCE", left, dp(337), paint);
+            RectF mail = new RectF(left, dp(347), left + half, dp(397));
+            box(c, mail, 12, panel, line); type(7, mint, true); c.drawText("MAIL // READ ONLY", mail.left + dp(10), dp(365), paint);
+            type(6.1f, soft, false); c.drawText(trimText(mailLine, 25), mail.left + dp(10), dp(386), paint); addHit(mail, "MAIL");
+            RectF whatsApp = new RectF(left + half + gap, dp(347), right, dp(397));
+            box(c, whatsApp, 12, panel, line); type(7, mint, true); c.drawText("WHATSAPP // TASKS", whatsApp.left + dp(10), dp(365), paint);
+            type(6.1f, soft, false); c.drawText(trimText(whatsAppLine, 24), whatsApp.left + dp(10), dp(386), paint); addHit(whatsApp, "WHATSAPP");
 
-            type(7, mintDim, true); c.drawText("// PINNED", left, dp(535), paint);
+            RectF remember = new RectF(left, dp(405), left + half, dp(455));
+            box(c, remember, 12, panelHot, mintDim); type(7, mint, true); c.drawText("daakREMEMBER", remember.left + dp(10), dp(423), paint);
+            type(6.1f, soft, false); c.drawText(trimText(rememberLine, 25), remember.left + dp(10), dp(444), paint); addHit(remember, "REMEMBER");
+            RectF climate = new RectF(left + half + gap, dp(405), right, dp(455));
+            box(c, climate, 12, panel, line); type(7, mint, true); c.drawText("WEATHER", climate.left + dp(10), dp(423), paint);
+            type(6.1f, soft, false); c.drawText(trimText(weather, 24), climate.left + dp(10), dp(444), paint); addHit(climate, "WEATHER");
+
+            RectF agenda = new RectF(left, dp(463), right, dp(513));
+            box(c, agenda, 12, panel, line); type(7, mint, true); c.drawText("AGENDA // NEXT 7 DAYS", agenda.left + dp(10), dp(481), paint);
+            type(6.2f, soft, false); c.drawText(trimText(agendaOne, 49), agenda.left + dp(10), dp(502), paint); addHit(agenda, "CALENDAR");
+
+            type(7, mintDim, true); c.drawText("// PINNED // 2 × 3", left, dp(535), paint);
             String[] names = {pinnedName(0), pinnedName(1), pinnedName(2), pinnedName(3), "REMEM", "RM-OS"};
             String[] actions = {pinnedAction(0), pinnedAction(1), pinnedAction(2), pinnedAction(3), "REMEMBER", "RMOS"};
-            float cardW = (right - left - gap * 5f) / 6f;
+            float cardW = (right - left - gap * 2f) / 3f;
+            float cardsTop = dp(545), cardsBottom = getHeight() - dp(79);
+            float cardH = Math.max(dp(36), (cardsBottom - cardsTop - gap) / 2f);
             for (int i = 0; i < 6; i++) {
-                RectF r = new RectF(left + i * (cardW + gap), dp(545), left + i * (cardW + gap) + cardW, dp(594));
-                box(c, r, 12, panel, line); type(5.4f, soft, true); center(c, names[i], r.centerX(), dp(575));
+                int row = i / 3, column = i % 3;
+                float x = left + column * (cardW + gap), y = cardsTop + row * (cardH + gap);
+                RectF r = new RectF(x, y, x + cardW, y + cardH);
+                box(c, r, 12, panel, line); type(7.2f, soft, true); center(c, names[i], r.centerX(), r.centerY() + dp(2.5f));
                 addHit(r, actions[i]);
             }
-            type(6.5f, ghost, false); c.drawText("TOP ↓ CONTROL  •  BOTTOM ↑ HOME", left, dp(613), paint);
         }
 
         void drawHomeLandscape(Canvas c) {
@@ -1038,17 +1113,18 @@ public final class MainActivity extends Activity {
                 box(c, r, 11, panel, line); type(6.5f, soft, true); center(c, miniNames[i], r.centerX(), r.centerY() + dp(3)); addHit(r, miniActions[i]);
             }
 
-            RectF mail = new RectF(x3, top, x3 + col, dp(126));
+            RectF mail = new RectF(x3, top, x3 + col, dp(120));
             box(c, mail, 12, panel, line); type(7, mint, true); c.drawText("MAIL // ALL ACCOUNTS", x3 + dp(10), top + dp(20), paint);
             type(6.3f, soft, false); c.drawText(trimText(mailLine, 35), x3 + dp(10), top + dp(42), paint); addHit(mail, "MAIL");
-            RectF climate = new RectF(x3, dp(134), x3 + col, dp(193));
-            box(c, climate, 12, panel, line); type(7, mint, true); c.drawText("WEATHER", x3 + dp(10), dp(153), paint);
-            type(6.3f, soft, false); c.drawText(trimText(weather, 35), x3 + dp(10), dp(174), paint);
-            type(5.5f, mintDim, true); c.drawText(trimText(weatherDetails, 39), x3 + dp(10), dp(189), paint); addHit(climate, "WEATHER");
-            RectF agenda = new RectF(x3, dp(201), x3 + col, bottom);
-            box(c, agenda, 12, panel, line); type(7, mint, true); c.drawText("AGENDA // NEXT", x3 + dp(10), dp(221), paint);
-            type(6.3f, soft, false); c.drawText(trimText(agendaOne, 35), x3 + dp(10), dp(246), paint);
-            type(6, ghost, false); c.drawText(trimText(agendaTwo, 37), x3 + dp(10), dp(269), paint); addHit(agenda, "CALENDAR");
+            RectF whatsApp = new RectF(x3, dp(128), x3 + col, dp(181));
+            box(c, whatsApp, 12, panel, line); type(7, mint, true); c.drawText("WHATSAPP // TASKS", x3 + dp(10), dp(148), paint);
+            type(6.3f, soft, false); c.drawText(trimText(whatsAppLine, 35), x3 + dp(10), dp(170), paint); addHit(whatsApp, "WHATSAPP");
+            RectF climate = new RectF(x3, dp(189), x3 + col, dp(242));
+            box(c, climate, 12, panel, line); type(7, mint, true); c.drawText("WEATHER", x3 + dp(10), dp(208), paint);
+            type(6.3f, soft, false); c.drawText(trimText(weather, 35), x3 + dp(10), dp(230), paint); addHit(climate, "WEATHER");
+            RectF agenda = new RectF(x3, dp(250), x3 + col, bottom);
+            box(c, agenda, 12, panel, line); type(7, mint, true); c.drawText("AGENDA // NEXT", x3 + dp(10), dp(269), paint);
+            type(6.1f, soft, false); c.drawText(trimText(agendaOne, 35), x3 + dp(10), dp(290), paint); addHit(agenda, "CALENDAR");
         }
 
         void drawApps(Canvas c) {
@@ -1090,6 +1166,81 @@ public final class MainActivity extends Activity {
                 type(8, soft, true); c.drawText(trimText(shownApps.get(i).label.toUpperCase(Locale.US), 25), x + dp(36), y + dp(18), paint);
                 type(5.5f, ghost, false); c.drawText(trimText(shownApps.get(i).packageName, 39), x + dp(36), y + dp(33), paint);
                 hits.add(new Hit(new RectF(row), shownApps.get(i)));
+            }
+            c.restore();
+        }
+
+        String panelTitle() {
+            if (panelKind.equals("MAIL")) return "MAIL // READ ONLY";
+            if (panelKind.equals("WHATSAPP")) return "WHATSAPP // TASK ROUTER";
+            return "daakREMEMBER // TAILSYNC";
+        }
+
+        String panelStatus() {
+            if (panelKind.equals("MAIL")) return "SON 24 SAAT • GÖNDERME YETKİSİ YOK";
+            if (panelKind.equals("WHATSAPP")) return NodeStore.whatsAppAutomationEnabled(MainActivity.this)
+                    ? "ACTIONABLE ONLY • AUTO TASKS ON" : "AUTO TASKS OFF";
+            return rememberOpenCount + " AÇIK NOT • TAILNET ONLY";
+        }
+
+        void drawInfoPanel(Canvas c) {
+            float left = dp(16), right = getWidth() - dp(16), top = dp(68), bottom = getHeight() - dp(78);
+            RectF shell = new RectF(left, top, right, bottom);
+            box(c, shell, 18, panel, line);
+            type(7, mintDim, true); c.drawText("// DAAK INTELLIGENCE", left + dp(14), top + dp(23), paint);
+            type(15, mint, true); c.drawText(panelTitle(), left + dp(14), top + dp(50), paint);
+            type(6.3f, soft, true); c.drawText(panelStatus(), left + dp(14), top + dp(70), paint);
+            paint.setColor(line); c.drawRect(left + dp(14), top + dp(82), right - dp(14), top + dp(83), paint);
+
+            float listTop = top + dp(94), actionTop = bottom - dp(58), rowH = dp(55);
+            c.save(); c.clipRect(left + dp(10), listTop, right - dp(10), actionTop - dp(8));
+            if (panelItems.isEmpty()) {
+                type(8, ghost, false); c.drawText(panelKind.equals("REMEMBER") ? "Mac çevrimdışı veya henüz not yok."
+                        : "Yeni kayıt yok • rahat ol.", left + dp(16), listTop + dp(25), paint);
+            }
+            for (int i = 0; i < panelItems.size(); i++) {
+                float y = listTop + i * rowH - panelScroll;
+                if (y + rowH < listTop || y > actionTop) continue;
+                RectF row = new RectF(left + dp(12), y, right - dp(12), y + rowH - dp(6));
+                box(c, row, 10, i == 0 ? panelHot : Color.BLACK, i == 0 ? mintDim : line);
+                type(6, mintDim, true); c.drawText(String.format(Locale.US, "%02d", i + 1), row.left + dp(9), y + dp(18), paint);
+                type(7.2f, soft, false); c.drawText(trimText(panelItems.get(i), 44), row.left + dp(36), y + dp(28), paint);
+            }
+            c.restore();
+
+            float gap = dp(8), buttonW = (right - left - gap * 2f) / 3f;
+            String primary = panelKind.equals("MAIL") ? "THUNDERBIRD" : panelKind.equals("WHATSAPP") ? "WHATSAPP" : "NEW NOTE";
+            String secondary = panelKind.equals("REMEMBER") ? "REFRESH" : "FILTER";
+            RectF first = new RectF(left, actionTop, left + buttonW, bottom);
+            RectF second = new RectF(left + buttonW + gap, actionTop, left + buttonW * 2f + gap, bottom);
+            RectF close = new RectF(left + buttonW * 2f + gap * 2f, actionTop, right, bottom);
+            box(c, first, 12, panelHot, mintDim); type(6.5f, mint, true); center(c, primary, first.centerX(), first.centerY() + dp(2)); addHit(first, "PANEL_PRIMARY");
+            box(c, second, 12, panel, line); type(6.5f, soft, true); center(c, secondary, second.centerX(), second.centerY() + dp(2)); addHit(second, "PANEL_SECONDARY");
+            box(c, close, 12, panel, line); type(6.5f, soft, true); center(c, "CLOSE", close.centerX(), close.centerY() + dp(2)); addHit(close, "PANEL_CLOSE");
+        }
+
+        void drawInfoPanelLandscape(Canvas c) {
+            float left = dp(16), right = getWidth() - dp(16), top = dp(68), bottom = getHeight() - dp(57), gap = dp(10);
+            RectF shell = new RectF(left, top, right, bottom);
+            box(c, shell, 16, panel, line);
+            float side = Math.min(dp(230), (right - left) * 0.31f), listLeft = left + side + gap;
+            type(7, mintDim, true); c.drawText("// DAAK INTELLIGENCE", left + dp(14), top + dp(24), paint);
+            type(13, mint, true); c.drawText(panelTitle(), left + dp(14), top + dp(51), paint);
+            type(6, soft, true); c.drawText(panelStatus(), left + dp(14), top + dp(73), paint);
+            String primary = panelKind.equals("MAIL") ? "THUNDERBIRD" : panelKind.equals("WHATSAPP") ? "WHATSAPP" : "NEW NOTE";
+            button(c, new RectF(left + dp(12), top + dp(91), left + side - dp(2), top + dp(144)), "OPEN", primary, "PRIVATE ACTION", true, "PANEL_PRIMARY");
+            button(c, new RectF(left + dp(12), top + dp(152), left + side - dp(2), top + dp(205)), "TOOLS", panelKind.equals("REMEMBER") ? "REFRESH" : "FILTER", "LOCAL SETTINGS", false, "PANEL_SECONDARY");
+            button(c, new RectF(left + dp(12), top + dp(213), left + side - dp(2), bottom - dp(12)), "BACK", "CLOSE", "RETURN HOME", false, "PANEL_CLOSE");
+            float rowH = dp(44);
+            c.save(); c.clipRect(listLeft, top + dp(12), right - dp(12), bottom - dp(12));
+            if (panelItems.isEmpty()) { type(8, ghost, false); c.drawText("Yeni kayıt yok • rahat ol.", listLeft + dp(12), top + dp(40), paint); }
+            for (int i = 0; i < panelItems.size(); i++) {
+                float y = top + dp(12) + i * rowH - panelScroll;
+                if (y + rowH < top || y > bottom) continue;
+                RectF row = new RectF(listLeft, y, right - dp(12), y + rowH - dp(5));
+                box(c, row, 9, i == 0 ? panelHot : Color.BLACK, i == 0 ? mintDim : line);
+                type(6, mintDim, true); c.drawText(String.format(Locale.US, "%02d", i + 1), row.left + dp(9), y + dp(17), paint);
+                type(7, soft, false); c.drawText(trimText(panelItems.get(i), 72), row.left + dp(38), y + dp(25), paint);
             }
             c.restore();
         }
@@ -1548,6 +1699,7 @@ public final class MainActivity extends Activity {
         void showSearch() {
             final EditText input = new EditText(MainActivity.this);
             input.setSingleLine(true); input.setText(query); input.setSelectAllOnFocus(true);
+            styleInput(input);
             AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
                     .setTitle("Uygulama ara").setView(input)
                     .setPositiveButton("ARA", (d, which) -> { query = input.getText().toString(); applyFilter(); })
@@ -1556,7 +1708,25 @@ public final class MainActivity extends Activity {
                 input.requestFocus();
                 dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
             });
+            showDaakDialog(dialog);
+        }
+
+        void styleInput(EditText input) {
+            input.setTextColor(soft); input.setHintTextColor(ghost);
+            input.setBackgroundTintList(ColorStateList.valueOf(mintDim));
+            input.setPadding(dpInt(12), dpInt(8), dpInt(12), dpInt(8));
+        }
+
+        int dpInt(float value) { return Math.round(dp(value)); }
+
+        void showDaakDialog(AlertDialog dialog) {
+            dialog.setOnDismissListener(ignored -> hideSystemBars());
             dialog.show();
+            if (dialog.getWindow() != null)
+                dialog.getWindow().getDecorView().setBackgroundColor(panel);
+            int[] buttons = {AlertDialog.BUTTON_POSITIVE, AlertDialog.BUTTON_NEUTRAL, AlertDialog.BUTTON_NEGATIVE};
+            for (int which : buttons) if (dialog.getButton(which) != null)
+                dialog.getButton(which).setTextColor(which == AlertDialog.BUTTON_POSITIVE ? mint : soft);
         }
 
         void showPinnedManager() {
@@ -1585,16 +1755,7 @@ public final class MainActivity extends Activity {
 
         void showWhatsAppPanel() {
             List<String> rows = NodeStore.recentWhatsAppTasks(MainActivity.this, 8);
-            StringBuilder body = new StringBuilder(NodeStore.whatsAppAutomationEnabled(MainActivity.this)
-                    ? "AUTO TASKS // ON\n\n" : "AUTO TASKS // OFF\n\n");
-            if (rows.isEmpty()) body.append("Henüz görev niteliğinde WhatsApp bildirimi yok.");
-            else for (String row : rows) body.append("• ").append(row).append("\n\n");
-            new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("WHATSAPP → daakREMEMBER")
-                    .setMessage(body.toString())
-                    .setPositiveButton("WHATSAPP", (d, which) -> launchPackage("com.whatsapp"))
-                    .setNeutralButton("AYAR", (d, which) -> showWhatsAppSettings())
-                    .setNegativeButton("KAPAT", null).show();
+            openInfoPanel("WHATSAPP", rows);
         }
 
         void showWhatsAppSettings() {
@@ -1603,8 +1764,9 @@ public final class MainActivity extends Activity {
             input.setSingleLine(false); input.setMinLines(2);
             input.setHint("Yok sayılacak kişi/grup adları, virgülle");
             input.setText(prefs.getString("ignored_whatsapp_senders", ""));
+            styleInput(input);
             boolean enabled = NodeStore.whatsAppAutomationEnabled(MainActivity.this);
-            new AlertDialog.Builder(MainActivity.this)
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
                     .setTitle("AUTO TASKS // " + (enabled ? "ON" : "OFF"))
                     .setMessage("Yalnız görev belirten bildirimler alınır; mesaj gönderilmez.")
                     .setView(input)
@@ -1612,7 +1774,8 @@ public final class MainActivity extends Activity {
                             .putString("ignored_whatsapp_senders", input.getText().toString()).apply())
                     .setNeutralButton(enabled ? "KAPAT" : "AÇ", (d, which) -> prefs.edit()
                             .putBoolean("whatsapp_tasks_enabled", !enabled).apply())
-                    .setNegativeButton("İPTAL", null).show();
+                    .setNegativeButton("İPTAL", null).create();
+            showDaakDialog(dialog);
         }
 
         void showDictationResult(String result) {
@@ -1709,25 +1872,9 @@ public final class MainActivity extends Activity {
         }
 
         void showMailPanel() {
-            final long viewedAt = System.currentTimeMillis();
             List<String> rows = NodeStore.recentMail(MainActivity.this, System.currentTimeMillis() - 24L * 60L * 60L * 1000L, 8);
-            StringBuilder body = new StringBuilder("READ ONLY // Son 24 saat\n\n");
-            if (rows.isEmpty()) body.append("Yeni mailin yok, rahat ol.\n\nThunderbird hesabını ve DAAK NODE bildirim erişimini bağlaman gerekebilir.");
-            else for (String row : rows) body.append("• ").append(row).append("\n\n");
-            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("DAAK NODE // MAIL")
-                    .setMessage(body.toString())
-                    .setPositiveButton("THUNDERBIRD", (d, which) -> launchPackage("net.thunderbird.android"))
-                    .setNeutralButton("FİLTRE", (d, which) -> showMailFilters())
-                    .setNegativeButton("KAPAT", null).create();
-            dialog.setOnDismissListener(d -> {
-                handler.postDelayed(() -> {
-                    NodeStore.clearMailBefore(MainActivity.this, viewedAt);
-                    updateMailLine(); invalidate();
-                }, 10L * 60L * 1000L);
-                hideSystemBars();
-            });
-            dialog.show();
+            mailViewedAt = System.currentTimeMillis();
+            openInfoPanel("MAIL", rows);
         }
 
         void showMailFilters() {
@@ -1735,11 +1882,13 @@ public final class MainActivity extends Activity {
             final EditText input = new EditText(MainActivity.this);
             input.setText(prefs.getString("ignored_senders", "spam,junk,newsletter,unsubscribe,no-reply,noreply"));
             input.setSingleLine(false); input.setMinLines(3);
-            new AlertDialog.Builder(MainActivity.this).setTitle("Gizlenecek gönderen/kelimeler")
+            styleInput(input);
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this).setTitle("Gizlenecek gönderen/kelimeler")
                     .setMessage("Virgülle ayır. Eşleşen mail DAAK özetine alınmaz.")
                     .setView(input)
                     .setPositiveButton("KAYDET", (d, which) -> prefs.edit().putString("ignored_senders", input.getText().toString()).apply())
-                    .setNegativeButton("İPTAL", null).show();
+                    .setNegativeButton("İPTAL", null).create();
+            showDaakDialog(dialog);
         }
 
         void showWeatherSetup() {
@@ -1810,25 +1959,51 @@ public final class MainActivity extends Activity {
 
         void showRememberPanel() {
             refreshRemember();
-            StringBuilder body = new StringBuilder("TAILNET ONLY // ").append(rememberOpenCount).append(" açık not\n\n");
-            if (rememberItems.isEmpty()) body.append("Henüz okunabilir not yok veya Mac çevrimdışı.");
-            else for (int i = 0; i < rememberItems.size() && i < 8; i++) body.append(rememberItems.get(i)).append("\n\n");
-            new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("daakREMEMBER")
-                    .setMessage(body.toString())
-                    .setPositiveButton("YENİ NOT", (d, which) -> showRememberCapture())
-                    .setNeutralButton("YENİLE", (d, which) -> refreshRemember())
-                    .setNegativeButton("KAPAT", null).show();
+            openInfoPanel("REMEMBER", new ArrayList<String>(rememberItems));
+        }
+
+        void openInfoPanel(String kind, List<String> rows) {
+            panelKind = kind;
+            panelItems.clear(); panelItems.addAll(rows);
+            panelScroll = 0;
+            mode = INFO_PANEL;
+            if (!contentScroller.isFinished()) contentScroller.abortAnimation();
+            invalidate();
+        }
+
+        void closeInfoPanel() {
+            if (panelKind.equals("MAIL") && mailViewedAt > 0L) {
+                final long cutoff = mailViewedAt;
+                handler.postDelayed(() -> {
+                    NodeStore.clearMailBefore(MainActivity.this, cutoff);
+                    updateMailLine(); invalidate();
+                }, 10L * 60L * 1000L);
+            }
+            panelKind = ""; panelItems.clear(); panelScroll = 0; mailViewedAt = 0L;
+        }
+
+        void panelPrimary() {
+            if (panelKind.equals("MAIL")) launchPackage("net.thunderbird.android");
+            else if (panelKind.equals("WHATSAPP")) launchPackage("com.whatsapp");
+            else showRememberCapture();
+        }
+
+        void panelSecondary() {
+            if (panelKind.equals("MAIL")) showMailFilters();
+            else if (panelKind.equals("WHATSAPP")) showWhatsAppSettings();
+            else { refreshRemember(); handler.postDelayed(this::showRememberPanel, 650L); }
         }
 
         void showRememberCapture() {
             final EditText input = new EditText(MainActivity.this);
             input.setSingleLine(false); input.setMinLines(3); input.setHint("Aklına geleni yakala...");
-            new AlertDialog.Builder(MainActivity.this)
+            styleInput(input);
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
                     .setTitle("REMEMBER // QUICK CAPTURE")
                     .setView(input)
                     .setPositiveButton("MAC'E SENKRONLA", (d, which) -> addRememberNote(input.getText().toString()))
-                    .setNegativeButton("İPTAL", null).show();
+                    .setNegativeButton("İPTAL", null).create();
+            showDaakDialog(dialog);
         }
 
         void launchObsidian() {
@@ -1863,43 +2038,87 @@ public final class MainActivity extends Activity {
         @Override public boolean onTouchEvent(MotionEvent event) {
             float x = event.getX() - burnX, y = event.getY() - burnY;
             if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                if (!contentScroller.isFinished()) contentScroller.abortAnimation();
+                if (velocityTracker != null) velocityTracker.recycle();
+                velocityTracker = VelocityTracker.obtain(); velocityTracker.addMovement(event);
                 wakeOnly = oledContentAlpha() < 255;
                 lastInteraction = System.currentTimeMillis(); invalidate();
-                downX = x; downY = y; lastY = y; moved = false; return true;
+                downX = x; downY = y; lastY = y; moved = false;
+                pressedRect = null; pressGlow = 0f;
+                for (int i = hits.size() - 1; i >= 0; i--) if (hits.get(i).rect.contains(x, y)) {
+                    pressedRect = new RectF(hits.get(i).rect); pressGlow = 0.42f; break;
+                }
+                invalidate(); return true;
             }
             if (event.getAction() == MotionEvent.ACTION_MOVE) {
-                if (mode == APPS) {
-                    float delta = lastY - y; if (Math.abs(y - downY) > dp(5)) moved = true;
-                    float max;
-                    if (getWidth() > getHeight()) max = Math.max(0, ((shownApps.size() + 1) / 2f) * dp(42) - (getHeight() - dp(172)));
-                    else max = Math.max(0, shownApps.size() * dp(49) - (getHeight() - dp(260)));
-                    drawerScroll = Math.max(0, Math.min(max, drawerScroll + delta));
-                    lastY = y; invalidate();
-                }
-                else if (mode == DISK_VIEW) {
-                    float delta = lastY - y; if (Math.abs(y - downY) > dp(5)) moved = true;
-                    float max;
-                    if (getWidth() > getHeight()) {
-                        float rows = (diskItems.size() + 1) / 2f;
-                        max = Math.max(0, rows * dp(42) - (getHeight() - dp(141)));
-                    } else max = Math.max(0, diskItems.size() * dp(46) - (getHeight() - dp(306)));
-                    diskScroll = Math.max(0, Math.min(max, diskScroll + delta));
+                if (velocityTracker != null) velocityTracker.addMovement(event);
+                if (isScrollableMode()) {
+                    float delta = lastY - y;
+                    if (Math.abs(y - downY) > dp(5)) {
+                        moved = true; pressedRect = null; pressGlow = 0f;
+                    }
+                    setActiveScroll(activeScroll() + delta);
                     lastY = y; invalidate();
                 }
                 return true;
             }
+            if (event.getAction() == MotionEvent.ACTION_CANCEL) {
+                recycleVelocity(); pressedRect = null; pressGlow = 0f; invalidate(); return true;
+            }
             if (event.getAction() != MotionEvent.ACTION_UP) return true;
-            if (wakeOnly) { wakeOnly = false; return true; }
-            if (downY > getHeight() - dp(115) && downY - y > dp(65)) { showMode(HOME); return true; }
-            if (downX > getWidth() - dp(24) && downX - x > dp(65)) { showMode(CONTROL); return true; }
-            if (downY < dp(58) && y - downY > dp(55)) { showMode(CONTROL); return true; }
-            if (moved) return true;
+            if (velocityTracker != null) velocityTracker.addMovement(event);
+            if (wakeOnly) { wakeOnly = false; recycleVelocity(); pressedRect = null; pressGlow = 0f; invalidate(); return true; }
+            if (downY > getHeight() - dp(115) && downY - y > dp(65)) { recycleVelocity(); showMode(HOME); return true; }
+            if (downX > getWidth() - dp(24) && downX - x > dp(65)) { recycleVelocity(); showMode(CONTROL); return true; }
+            if (downY < dp(58) && y - downY > dp(55)) { recycleVelocity(); showMode(CONTROL); return true; }
+            if (moved) {
+                if (isScrollableMode() && velocityTracker != null) {
+                    velocityTracker.computeCurrentVelocity(1000, 9000f);
+                    float velocity = velocityTracker.getYVelocity();
+                    contentScroller.fling(0, Math.round(activeScroll()), 0, Math.round(-velocity),
+                            0, 0, 0, Math.round(maxActiveScroll()), 0, Math.round(dp(32)));
+                    postInvalidateOnAnimation();
+                }
+                recycleVelocity(); pressedRect = null; pressGlow = 0f; return true;
+            }
+            recycleVelocity(); pressedRect = null; pressGlow = 0f;
             softHaptic();
             for (int i = hits.size() - 1; i >= 0; i--) {
                 Hit hit = hits.get(i);
-                if (hit.rect.contains(x, y)) { handle(hit); return true; }
+                if (hit.rect.contains(x, y)) { animateHit(hit); return true; }
             }
             return true;
+        }
+
+        boolean isScrollableMode() { return mode == APPS || mode == DISK_VIEW || mode == INFO_PANEL; }
+        float activeScroll() { return mode == APPS ? drawerScroll : mode == DISK_VIEW ? diskScroll : panelScroll; }
+        void setActiveScroll(float value) {
+            float clamped = Math.max(0f, Math.min(maxActiveScroll(), value));
+            if (mode == APPS) drawerScroll = clamped;
+            else if (mode == DISK_VIEW) diskScroll = clamped;
+            else panelScroll = clamped;
+        }
+        float maxActiveScroll() {
+            if (mode == APPS) {
+                if (getWidth() > getHeight()) return Math.max(0, ((shownApps.size() + 1) / 2f) * dp(42) - (getHeight() - dp(172)));
+                return Math.max(0, shownApps.size() * dp(49) - (getHeight() - dp(260)));
+            }
+            if (mode == DISK_VIEW) {
+                if (getWidth() > getHeight()) return Math.max(0, ((diskItems.size() + 1) / 2f) * dp(42) - (getHeight() - dp(141)));
+                return Math.max(0, diskItems.size() * dp(46) - (getHeight() - dp(306)));
+            }
+            float visible = getWidth() > getHeight() ? getHeight() - dp(149) : getHeight() - dp(306);
+            float rowHeight = getWidth() > getHeight() ? dp(44) : dp(55);
+            return Math.max(0, panelItems.size() * rowHeight - Math.max(dp(40), visible));
+        }
+        void recycleVelocity() {
+            if (velocityTracker != null) { velocityTracker.recycle(); velocityTracker = null; }
+        }
+
+        @Override public void computeScroll() {
+            if (!contentScroller.computeScrollOffset()) return;
+            setActiveScroll(contentScroller.getCurrY());
+            postInvalidateOnAnimation();
         }
 
         void handle(Hit hit) {
@@ -1921,6 +2140,9 @@ public final class MainActivity extends Activity {
             else if (a.equals("SOUND")) showNotificationSoundPanel();
             else if (a.equals("PINS")) showPinnedManager();
             else if (a.equals("WHATSAPP")) showWhatsAppPanel();
+            else if (a.equals("PANEL_PRIMARY")) panelPrimary();
+            else if (a.equals("PANEL_SECONDARY")) panelSecondary();
+            else if (a.equals("PANEL_CLOSE")) showMode(HOME);
             else if (a.equals("LOLILE_HUB")) guarded(() -> launchLolileHub());
             else if (a.equals("DICTATE")) startDictation();
             else if (a.equals("CHECK_UPDATE")) guarded(() -> maybeCheckUpdate(true));

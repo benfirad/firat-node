@@ -45,6 +45,10 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Empty-folder-safe Kurek navigation and atomic file downloads that never expose partial SMB files
 - Fail-closed Magisk SSH firewall: port 8022 accepts only loopback and Tailscale `tun*` traffic, with password and forwarding disabled
 - On-device `daak-selftest` command for sanitized firewall, Tailnet, Codex SSH, daakREMEMBER, Kurek TCP and browser-bridge diagnostics
+- S9 Lilac Purple OLED palette, animated press feedback and inertial app/disk/intelligence-panel scrolling
+- Two-row portrait pinned grid plus first-class mail, WhatsApp task and daakREMEMBER cards on the home screen
+- Native DAAK intelligence panels replace Samsung-styled mail, WhatsApp and Remember summary dialogs
+- Fingerprint/iris/device-credential vault shortcut is always reachable from the top bar
 
 ## Security model
 
