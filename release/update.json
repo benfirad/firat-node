@@ -1,7 +1,7 @@
 {
-  "versionCode": 18,
-  "versionName": "6.8.0",
-  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.8.0/DAAK-NODE.apk",
-  "sha256": "7227556cc97e63b0e910d78248120578ae928f8c90f43ecc0514b2cecb9e3e8d",
-  "notes": "Yüksek sesli gömülü DAAK tonları, çizgili alt menü, daakREMEMBER düzenle/tamamla/sil/geri al, MediaSession müzik denetimi, hava konumuna göre özel günler ve Tailscale'e kapalı güvenli uzaktan ADB."
+  "versionCode": 19,
+  "versionName": "6.8.1",
+  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.8.1/DAAK-NODE.apk",
+  "sha256": "7a4309152d7b88b711e8ce69ca72f263956bc8b6907fe270410c79b1c4fc1726",
+  "notes": "Alt menü dokunma anındaki genel yuvarlak stroke tamamen kaldırıldı; seçili bölüm yalnızca yazının altındaki ince çizgiyle gösteriliyor."
 }

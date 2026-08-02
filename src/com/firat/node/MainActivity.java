@@ -92,7 +92,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public final class MainActivity extends Activity {
-    private static final String BUILD_VERSION = "6.8.0";
+    private static final String BUILD_VERSION = "6.8.1";
     private static final int TERMUX_PERMISSION_REQUEST = 73;
     private static final int CALENDAR_PERMISSION_REQUEST = 74;
     private static final int LOCATION_PERMISSION_REQUEST = 75;
@@ -1278,6 +1278,7 @@ public final class MainActivity extends Activity {
 
         void animateHit(final Hit hit) {
             if (isDockAction(hit.action)) {
+                if (pressAnimator != null) { pressAnimator.cancel(); pressAnimator = null; }
                 pressedRect = null; pressGlow = 0f;
                 handle(hit);
                 return;
@@ -2489,7 +2490,11 @@ public final class MainActivity extends Activity {
                 downX = x; downY = y; lastY = y; moved = false;
                 pressedRect = null; pressGlow = 0f;
                 for (int i = hits.size() - 1; i >= 0; i--) if (hits.get(i).rect.contains(x, y)) {
-                    pressedRect = new RectF(hits.get(i).rect); pressGlow = 0.42f; break;
+                    Hit hit = hits.get(i);
+                    if (!isDockAction(hit.action)) {
+                        pressedRect = new RectF(hit.rect); pressGlow = 0.42f;
+                    }
+                    break;
                 }
                 invalidate(); return true;
             }
