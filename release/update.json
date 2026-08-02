@@ -1,7 +1,7 @@
 {
-  "versionCode": 20,
-  "versionName": "6.8.2",
-  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.8.2/DAAK-NODE.apk",
-  "sha256": "bee012b9049567b3e98a56a5ea235c6732859af57abbf3a14ecdadc877d222d6",
-  "notes": "46 uygulamalık aç/kapat debug taraması; Image Toolbox ve Material Files için 15 saniyelik hızlı CPU temizliği; normal uygulamalarda 10 dakikalık cache."
+  "versionCode": 21,
+  "versionName": "6.8.3",
+  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.8.3/DAAK-NODE.apk",
+  "sha256": "7532cc7aa7079afe4df6440fde02dec43564773d295b2fb96db6fa2acb2d61fd",
+  "notes": "46 uygulama 2 tur aç/kapat testinden geçti; Image Toolbox, Material Files ve Google Photos için izin listeli 15 saniyelik root temizleyici eklendi."
 }

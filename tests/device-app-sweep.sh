@@ -87,7 +87,7 @@ while IFS= read -r component <&3; do
         sleep 1
     fi
     case "$package" in
-        ru.tech.imageresizershrinker|me.zhanghai.android.files)
+        ru.tech.imageresizershrinker|me.zhanghai.android.files|com.google.android.apps.photos)
             $adb_bin -s "$device" shell am force-stop "$package" >/dev/null 2>&1 || true
             printf 'HOT_CLEANUP %s\n' "$package"
             ;;

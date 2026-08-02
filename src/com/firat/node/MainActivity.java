@@ -92,7 +92,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public final class MainActivity extends Activity {
-    private static final String BUILD_VERSION = "6.8.2";
+    private static final String BUILD_VERSION = "6.8.3";
     private static final int TERMUX_PERMISSION_REQUEST = 73;
     private static final int CALENDAR_PERMISSION_REQUEST = 74;
     private static final int LOCATION_PERMISSION_REQUEST = 75;
@@ -502,8 +502,8 @@ public final class MainActivity extends Activity {
                 cleanupPackage = null;
                 if (!isCleanupCandidate(target)) return;
                 ActivityManager manager = (ActivityManager)getSystemService(ACTIVITY_SERVICE);
-                if (manager == null) return;
-                manager.killBackgroundProcesses(target);
+                if (manager != null) manager.killBackgroundProcesses(target);
+                if (isFastCleanupPackage(target)) requestFastCleanup(target);
                 message = "MEMORY // " + target.toUpperCase(Locale.US) + " CLOSED";
                 invalidate();
             }
@@ -644,9 +644,31 @@ public final class MainActivity extends Activity {
         }
 
         long cleanupDelayMs(String packageName) {
-            if (packageName.equals("ru.tech.imageresizershrinker") ||
-                    packageName.equals("me.zhanghai.android.files")) return 15_000L;
+            if (isFastCleanupPackage(packageName)) return 15_000L;
             return 10L * 60L * 1000L;
+        }
+
+        boolean isFastCleanupPackage(String packageName) {
+            return packageName.equals("ru.tech.imageresizershrinker") ||
+                    packageName.equals("me.zhanghai.android.files") ||
+                    packageName.equals("com.google.android.apps.photos");
+        }
+
+        void requestFastCleanup(final String packageName) {
+            if (!isFastCleanupPackage(packageName)) return;
+            new Thread(() -> {
+                File queue = new File(getFilesDir(), "daak-node");
+                File temp = new File(queue, "cleanup.request.tmp");
+                File target = new File(queue, "cleanup.request");
+                try {
+                    if (!queue.exists() && !queue.mkdirs()) return;
+                    FileOutputStream output = new FileOutputStream(temp, false);
+                    output.write(packageName.getBytes("UTF-8"));
+                    output.flush(); output.getFD().sync(); output.close();
+                    if (target.exists() && !target.delete()) return;
+                    if (!temp.renameTo(target)) temp.delete();
+                } catch (Exception ignored) { temp.delete(); }
+            }, "node-app-cleaner").start();
         }
 
         void playRotationTransition() {
