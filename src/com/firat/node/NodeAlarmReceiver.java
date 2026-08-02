@@ -19,7 +19,8 @@ public final class NodeAlarmReceiver extends BroadcastReceiver {
         boolean morning = intent != null && NodeStore.ACTION_MORNING.equals(intent.getAction());
         long since;
         if (morning) {
-            Calendar start = Calendar.getInstance(); start.set(Calendar.HOUR_OF_DAY, 0); start.set(Calendar.MINUTE, 0); start.set(Calendar.SECOND, 0);
+            Calendar start = Calendar.getInstance(); start.set(Calendar.HOUR_OF_DAY, 0); start.set(Calendar.MINUTE, 0);
+            start.set(Calendar.SECOND, 0); start.set(Calendar.MILLISECOND, 0);
             since = start.getTimeInMillis();
         } else since = prefs.getLong("last_hourly", now - 60L * 60L * 1000L);
         List<String> rows = NodeStore.recentMail(context, since, 5);

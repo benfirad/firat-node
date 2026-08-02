@@ -136,8 +136,17 @@ final class NodeStore {
         return false;
     }
 
-    static void clearSensitiveCache(Context context) {
-        context.getSharedPreferences(PREFS, 0).edit().remove("mail_items").apply();
+    static synchronized void clearMailBefore(Context context, long cutoff) {
+        try {
+            SharedPreferences prefs = context.getSharedPreferences(PREFS, 0);
+            JSONArray old = new JSONArray(prefs.getString("mail_items", "[]"));
+            JSONArray remaining = new JSONArray();
+            for (int i = 0; i < old.length(); i++) {
+                JSONObject item = old.optJSONObject(i);
+                if (item != null && item.optLong("when", 0L) > cutoff) remaining.put(item);
+            }
+            prefs.edit().putString("mail_items", remaining.toString()).apply();
+        } catch (Exception ignored) { }
     }
 
     static void schedule(Context context) {

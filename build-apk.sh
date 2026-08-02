@@ -7,6 +7,7 @@ sdk_dir=${ANDROID_SDK_ROOT:-"$HOME/Library/Android/sdk"}
 android_jar="$sdk_dir/platforms/android-29/android.jar"
 build_tools="$sdk_dir/build-tools/35.0.1"
 build_dir=$(mktemp -d)
+trap 'rm -rf "$build_dir"' EXIT HUP INT TERM
 
 mkdir -p "$build_dir/classes" "$build_dir/dex"
 find "$project_dir/src" -name '*.java' -print0 | \

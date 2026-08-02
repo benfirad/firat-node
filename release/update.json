@@ -1,0 +1,7 @@
+{
+  "versionCode": 15,
+  "versionName": "6.5.0",
+  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.5.0/DAAK-NODE.apk",
+  "sha256": "bc1026e234e7a8319884ce91ee38371b7d13e2af0330f380c5317f423d68bde8",
+  "notes": "Tam debug sürümü: boş Kurek klasörü düzeltmesi, atomik SMB indirme, güvenli mail önbelleği, HTTPS ve boyut korumalı güncelleyici, bildirim erişim kısayolu ve launcher geri tuşu koruması."
+}

@@ -6,6 +6,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import tempfile
 
 
 ROOT = "smb://lolile/kurek"
@@ -45,14 +46,23 @@ def main() -> int:
         parent, name = decode_file(encoded)
         DOWNLOADS.mkdir(parents=True, exist_ok=True)
         local = DOWNLOADS / name
+        descriptor, temporary_name = tempfile.mkstemp(prefix=".daak-", suffix=".part", dir=DOWNLOADS)
+        os.close(descriptor)
+        temporary = pathlib.Path(temporary_name)
         command = [
             "smbclient", SHARE, "-A", str(AUTH), "-m", "SMB3",
             "--client-protection=encrypt",
         ]
         if parent:
             command.extend(["-D", parent])
-        command.extend(["-c", f"get {smb_quote(name)} {smb_quote(str(local))}"])
-        subprocess.run(command, capture_output=True, text=True, timeout=45, check=True)
+        command.extend(["-c", f"get {smb_quote(name)} {smb_quote(str(temporary))}"])
+        try:
+            subprocess.run(command, capture_output=True, text=True, timeout=45, check=True)
+            if not temporary.is_file():
+                raise FileNotFoundError(name)
+            temporary.replace(local)
+        finally:
+            temporary.unlink(missing_ok=True)
         if not local.is_file():
             raise FileNotFoundError(name)
         atomic_status(status, f"[OK] {local}")

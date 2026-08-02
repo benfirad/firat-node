@@ -41,6 +41,10 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - One-tap Fossify Clock alarms and battery-light Plees sleep tracking from the control centre
 - Optional daily update checks with a pinned manifest and mandatory APK SHA-256 verification
 - Two-line temperature, apparent-temperature and condition display without clipped weather text
+- Built-in notification-access shortcut plus safer mail-cache expiry that preserves messages arriving after a panel was viewed
+- Empty-folder-safe Kurek navigation and atomic file downloads that never expose partial SMB files
+- Fail-closed Magisk SSH firewall: port 8022 accepts only loopback and Tailscale `tun*` traffic, with password and forwarding disabled
+- On-device `daak-selftest` command for sanitized firewall, Tailnet, Codex SSH, daakREMEMBER, Kurek TCP and browser-bridge diagnostics
 
 ## Security model
 
@@ -50,7 +54,7 @@ DAAK NODE contains no SSH keys, passwords, OAuth tokens, Tailnet addresses or ho
 /sdcard/Download/daak-node/config.properties
 ```
 
-Copy `config.properties.example` to that path and edit it locally. Keep remote services bound to Tailscale, use key-only SSH, and do not expose Termux SSH directly to the public internet.
+Copy `config.properties.example` to that path and edit it locally. Keep remote services bound to Tailscale, use key-only SSH, and do not expose Termux SSH directly to the public internet. The deployed Magisk service `companion/magisk/daak-sshd-firewall.sh` maintains an idempotent IPv4/IPv6 firewall and heartbeat; `companion/termux/daak-sshd` refuses to start sshd when that heartbeat is stale. Termux itself is never granted root.
 
 Mail access is metadata-only through Android's notification listener: sender, subject and timestamp. WhatsApp processing is limited to notification text that Android has already decrypted and displayed; only explicit task-like phrases are captured. DAAK NODE never sends mail or WhatsApp messages.
 
@@ -77,6 +81,8 @@ the `open https://example.com` alias from either shell. Pass `--firefox` or
 `--system` when a different Android handler is needed.
 
 The build uses only Android SDK command-line tools. The generated APK is debug-signed for personal installation and is excluded from Git.
+`release/update.json` is the pinned manifest published beside each APK release;
+Android additionally enforces that an upgrade carries the same signing certificate.
 
 ## Companion apps
 

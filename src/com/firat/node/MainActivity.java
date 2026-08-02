@@ -1,6 +1,7 @@
 package com.firat.node;
 
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.app.WallpaperManager;
 import android.content.ActivityNotFoundException;
@@ -117,8 +118,7 @@ public final class MainActivity extends Activity {
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        if (nodeView != null && Intent.ACTION_MAIN.equals(intent.getAction()) &&
-                intent.hasCategory(Intent.CATEGORY_HOME)) {
+        if (nodeView != null && Intent.ACTION_MAIN.equals(intent.getAction())) {
             nodeView.showMode(NodeView.HOME);
         }
     }
@@ -184,7 +184,7 @@ public final class MainActivity extends Activity {
     @Override public void onBackPressed() {
         if (nodeView != null && nodeView.mode == NodeView.DISK_VIEW && !NodeView.DISK_ROOT.equals(nodeView.diskPath)) nodeView.diskUp();
         else if (nodeView != null && nodeView.mode != NodeView.HOME) nodeView.showMode(NodeView.HOME);
-        else super.onBackPressed();
+        else if (nodeView == null) super.onBackPressed();
     }
 
     private void ensureTermuxPermission() {
@@ -227,16 +227,17 @@ public final class MainActivity extends Activity {
         long now = System.currentTimeMillis();
         if (!manual && now - prefs.getLong("last_update_check", 0L) < 24L * 60L * 60L * 1000L) return;
         updateCheckRunning = true;
-        prefs.edit().putLong("last_update_check", now).apply();
         if (manual && nodeView != null) { nodeView.message = "UPDATE // CHECKING"; nodeView.invalidate(); }
         NodeUpdater.check(this, new NodeUpdater.CheckCallback() {
             @Override public void onCurrent() {
                 updateCheckRunning = false;
+                prefs.edit().putLong("last_update_check", System.currentTimeMillis()).apply();
                 if (manual) toast("DAAK NODE güncel");
                 if (nodeView != null) { nodeView.message = "UPDATE // CURRENT"; nodeView.invalidate(); }
             }
             @Override public void onAvailable(final NodeUpdater.Update update) {
                 updateCheckRunning = false;
+                prefs.edit().putLong("last_update_check", System.currentTimeMillis()).apply();
                 new AlertDialog.Builder(MainActivity.this)
                         .setTitle("DAAK NODE " + update.versionName)
                         .setMessage((update.notes.length() == 0 ? "Yeni güvenli güncelleme hazır." : update.notes) +
@@ -265,7 +266,7 @@ public final class MainActivity extends Activity {
     }
 
     private void startSshdBackground() {
-        runTermuxRaw("pgrep -x sshd >/dev/null 2>&1 || sshd", true, null);
+        runTermuxRaw("exec ~/.shortcuts/daak-sshd", true, null);
         if (nodeView != null) nodeView.postDelayed(new Runnable() {
             @Override public void run() { nodeView.refreshStatus(); }
         }, 2000L);
@@ -455,7 +456,9 @@ public final class MainActivity extends Activity {
                 String target = cleanupPackage;
                 cleanupPackage = null;
                 if (!isCleanupCandidate(target)) return;
-                runTermuxRaw("su -c 'am force-stop " + target + "'", true, null);
+                ActivityManager manager = (ActivityManager)getSystemService(ACTIVITY_SERVICE);
+                if (manager == null) return;
+                manager.killBackgroundProcesses(target);
                 message = "MEMORY // " + target.toUpperCase(Locale.US) + " CLOSED";
                 invalidate();
             }
@@ -859,13 +862,27 @@ public final class MainActivity extends Activity {
 
         String findMeshIp() {
             try {
-                for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces()))
+                for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+                    String interfaceName = ni.getName() == null ? "" : ni.getName().toLowerCase(Locale.US);
+                    if (!(interfaceName.startsWith("tun") || interfaceName.contains("tailscale") ||
+                            interfaceName.startsWith("wg"))) continue;
                     for (java.net.InetAddress address : Collections.list(ni.getInetAddresses())) {
                         String host = address.getHostAddress();
-                        if (!address.isLoopbackAddress() && host != null && host.startsWith("100.")) return host;
+                        if (!address.isLoopbackAddress() && isTailnetIpv4(host)) return host;
                     }
+                }
             } catch (Exception ignored) { }
             return "OFFLINE";
+        }
+
+        boolean isTailnetIpv4(String host) {
+            if (host == null || !host.startsWith("100.")) return false;
+            String[] parts = host.split("\\.");
+            if (parts.length != 4) return false;
+            try {
+                int second = Integer.parseInt(parts[1]);
+                return second >= 64 && second <= 127;
+            } catch (NumberFormatException ignored) { return false; }
         }
 
         float dp(float value) { return value * getResources().getDisplayMetrics().density; }
@@ -1096,7 +1113,8 @@ public final class MainActivity extends Activity {
             String[][] tiles = {
                     {"VPN", "TAILSCALE", "PKG:com.tailscale.ipn"}, {"PC", "DAAK LOLILE", "LOLILE_HUB"}, {"PIN", "PINNED APPS", "PINS"}, {"KEY", "KEYBOARD", "SET:INPUT"},
                     {"SEC", "BIOMETRICS", "SET:SECURITY"}, {"WA", "WHATSAPP TASKS", "WHATSAPP"}, {"MIC", "DAAK INBOX", "DICTATE"}, {"UP", "UPDATE", "CHECK_UPDATE"},
-                    {"ALM", "FOSSIFY CLOCK", "PKG:org.fossify.clock"}, {"ZZZ", "SLEEP TRACKER", "PKG:hu.vmiklos.plees_tracker"}, {"SND", "NOTIFY SOUND", "SOUND"}
+                    {"ALM", "FOSSIFY CLOCK", "PKG:org.fossify.clock"}, {"ZZZ", "SLEEP TRACKER", "PKG:hu.vmiklos.plees_tracker"},
+                    {"SND", "NOTIFY SOUND", "SOUND"}, {"NLS", "NOTIFY ACCESS", "SET:MAILACCESS"}
             };
             float colW = (right - left - gap * 3f) / 4f, rowH = (bottom - top - gap * 2f) / 3f;
             for (int i = 0; i < tiles.length; i++) {
@@ -1267,7 +1285,7 @@ public final class MainActivity extends Activity {
                     {"SEC", "BIOMETRICS", "SET:SECURITY"}, {"WA", "WHATSAPP TASKS", "WHATSAPP"},
                     {"UP", "UPDATE", "CHECK_UPDATE"}, {"MIC", "DAAK INBOX", "DICTATE"},
                     {"ALM", "FOSSIFY CLOCK", "PKG:org.fossify.clock"}, {"ZZZ", "SLEEP TRACKER", "PKG:hu.vmiklos.plees_tracker"},
-                    {"SND", "NOTIFY SOUND", "SOUND"}
+                    {"SND", "NOTIFY SOUND", "SOUND"}, {"NLS", "NOTIFY ACCESS", "SET:MAILACCESS"}
             };
             float half = (right - left - gap) / 2f, top = dp(124), h = dp(58);
             for (int i = 0; i < tiles.length; i++) {
@@ -1367,6 +1385,7 @@ public final class MainActivity extends Activity {
             File file = new File("/sdcard/Download/daak-lolile-list.txt");
             final ArrayList<String> loaded = new ArrayList<String>();
             String loadedPath = null;
+            String failureDetail = "";
             boolean complete = !requireComplete;
             boolean failed = false;
             try {
@@ -1378,14 +1397,18 @@ public final class MainActivity extends Activity {
                         if (lineText.equals("[OK] " + expectedToken)) complete = true;
                     }
                     else if (lineText.startsWith("[ERR] ")) {
-                        if (lineText.equals("[ERR] " + expectedToken)) { complete = true; failed = true; }
+                        String marker = "[ERR] " + expectedToken;
+                        if (lineText.startsWith(marker)) {
+                            complete = true; failed = true;
+                            failureDetail = lineText.substring(marker.length()).trim();
+                        }
                     }
                     else if (lineText.trim().length() > 0) loaded.add(lineText.trim());
                 }
                 reader.close();
                 if (complete || !requireComplete) {
                     if (loadedPath != null && (loadedPath.equals(DISK_ROOT) || loadedPath.startsWith(DISK_ROOT + "/"))) diskPath = loadedPath;
-                    if (!loaded.isEmpty()) {
+                    if (!failed) {
                         diskItems.clear(); diskItems.addAll(loaded);
                     }
                 }
@@ -1393,7 +1416,8 @@ public final class MainActivity extends Activity {
             if (!complete) return false;
             diskLoading = false;
             if (failed) {
-                diskMessage = diskItems.isEmpty() ? "SMB3 failed • tap REFRESH" : "Refresh failed • showing cache";
+                String detail = failureDetail.length() == 0 ? "offline" : trimText(failureDetail, 44);
+                diskMessage = diskItems.isEmpty() ? "SMB3 failed • " + detail : "Refresh failed • cache • " + detail;
                 message = "LOLILE INDEX ERROR";
             } else {
                 diskMessage = loaded.isEmpty() ? "Folder is empty" : loaded.size() + " items • live";
@@ -1410,6 +1434,7 @@ public final class MainActivity extends Activity {
             if (item.startsWith("[D] ")) {
                 if (!diskPath.endsWith("/")) diskPath += "/";
                 diskPath += name;
+                diskItems.clear();
                 diskScroll = 0;
                 refreshDiskIndex();
             } else downloadDiskFile(name);
@@ -1684,6 +1709,7 @@ public final class MainActivity extends Activity {
         }
 
         void showMailPanel() {
+            final long viewedAt = System.currentTimeMillis();
             List<String> rows = NodeStore.recentMail(MainActivity.this, System.currentTimeMillis() - 24L * 60L * 60L * 1000L, 8);
             StringBuilder body = new StringBuilder("READ ONLY // Son 24 saat\n\n");
             if (rows.isEmpty()) body.append("Yeni mailin yok, rahat ol.\n\nThunderbird hesabını ve DAAK NODE bildirim erişimini bağlaman gerekebilir.");
@@ -1696,8 +1722,8 @@ public final class MainActivity extends Activity {
                     .setNegativeButton("KAPAT", null).create();
             dialog.setOnDismissListener(d -> {
                 handler.postDelayed(() -> {
-                    NodeStore.clearSensitiveCache(MainActivity.this);
-                    mailLine = "Sensitive cache cleared"; invalidate();
+                    NodeStore.clearMailBefore(MainActivity.this, viewedAt);
+                    updateMailLine(); invalidate();
                 }, 10L * 60L * 1000L);
                 hideSystemBars();
             });
