@@ -1,0 +1,16 @@
+#!/data/data/com.termux/files/usr/bin/sh
+set -eu
+
+# Magisk's root service owns the firewall; Termux deliberately stays unprivileged.
+# A fresh heartbeat proves the fail-closed service is alive before sshd starts.
+heartbeat="$HOME/.config/daak/sshd-firewall.ready"
+now=$(date +%s)
+updated=$(cat "$heartbeat" 2>/dev/null || printf 0)
+case "$updated" in ''|*[!0-9]*) updated=0 ;; esac
+if [ $((now - updated)) -gt 180 ]; then
+    pkill -x sshd 2>/dev/null || true
+    echo "DAAK // SSH firewall heartbeat missing; sshd stopped" >&2
+    exit 1
+fi
+
+pgrep -x sshd >/dev/null 2>&1 || sshd

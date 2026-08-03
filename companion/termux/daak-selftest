@@ -1,0 +1,72 @@
+#!/data/data/com.termux/files/usr/bin/sh
+set -u
+
+export PREFIX=/data/data/com.termux/files/usr
+export PATH="$PREFIX/bin:/system/bin:/system/xbin"
+termux_home=/data/data/com.termux/files/home
+export HOME="$termux_home"
+
+target=${1:-}
+temporary=""
+if [ -n "$target" ]; then
+    case "$target" in /sdcard/Download/*) ;; *) echo "DAAK // unsafe report path" >&2; exit 2 ;; esac
+    temporary="$target.$$.tmp"
+    : > "$temporary" || exit 1
+fi
+
+report() {
+    printf '%s\n' "$1"
+    [ -z "$temporary" ] || printf '%s\n' "$1" >> "$temporary"
+}
+
+property() {
+    key=$1
+    fallback=$2
+    config=/sdcard/Download/daak-node/config.properties
+    value=$(sed -n "s/^${key}=//p" "$config" 2>/dev/null | head -n 1)
+    case "$value" in ''|*[!A-Za-z0-9._:-]*) printf '%s' "$fallback" ;; *) printf '%s' "$value" ;; esac
+}
+
+now=$(date +%s)
+heartbeat="$termux_home/.config/daak/sshd-firewall.ready"
+updated=$(cat "$heartbeat" 2>/dev/null || printf 0)
+case "$updated" in ''|*[!0-9]*) updated=0 ;; esac
+if [ $((now - updated)) -le 180 ]; then report "FIREWALL OK"; else report "FIREWALL FAIL"; fi
+
+if [ "$(getprop service.adb.tcp.port)" = "5555" ] && [ $((now - updated)) -le 180 ]; then
+    report "REMOTE ADB OK"
+else
+    report "REMOTE ADB OFF"
+fi
+
+tail_ip=$(ip -4 -o addr show 2>/dev/null | awk '$2 ~ /^tun/ && $4 ~ /^100\./ {sub(/\/.*/, "", $4); print $4; exit}')
+if [ -n "$tail_ip" ]; then report "TAILNET OK $tail_ip"; else report "TAILNET FAIL"; fi
+
+if timeout 12 ssh -o BatchMode=yes -o ConnectTimeout=7 daak-mac \
+        'test -x "/Users/kai/Library/Application Support/DAAK/daak-codex-launch.sh"' 2>/dev/null; then
+    report "CODEX SSH OK"
+else
+    report "CODEX SSH FAIL"
+fi
+
+remember_host=$(property remember_host "$(property mac_host mac)")
+if command -v curl >/dev/null 2>&1 && curl -fsS --max-time 6 "http://$remember_host:45831/snapshot" >/dev/null 2>&1; then
+    report "REMEMBER OK"
+else
+    report "REMEMBER FAIL"
+fi
+
+lolile_host=$(property lolile_host lolile)
+if timeout 5 bash -c ": </dev/tcp/$lolile_host/445" >/dev/null 2>&1; then
+    report "KUREK TCP OK"
+else
+    report "KUREK TCP FAIL"
+fi
+
+if [ -x "$PREFIX/bin/daak-open" ] && [ -L "$PREFIX/bin/open" ]; then
+    report "BROWSER BRIDGE OK"
+else
+    report "BROWSER BRIDGE FAIL"
+fi
+
+if [ -n "$temporary" ]; then mv -f "$temporary" "$target"; fi

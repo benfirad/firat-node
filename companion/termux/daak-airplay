@@ -1,0 +1,114 @@
+#!/data/data/com.termux/files/usr/bin/python
+"""Send one local audio file to DAAK's free Shairport Sync receiver."""
+
+import asyncio
+import os
+import plistlib
+import sys
+from datetime import datetime
+from pathlib import Path
+
+import pyatv
+from pyatv.const import Protocol
+from pyatv.support.rtsp import RtspSession
+
+
+STATUS_FILE = Path.home() / ".cache" / "daak-airplay-status.txt"
+
+
+def write_status(state: str, detail: str) -> None:
+    try:
+        STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        STATUS_FILE.write_text(
+            f"{state}\n{detail}\n{datetime.now().isoformat(timespec='seconds')}\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+
+
+def install_shairport_compatibility() -> None:
+    """Tolerate two harmless differences in classic Shairport Sync RTSP."""
+    original_info = RtspSession.info
+    original_teardown = RtspSession.teardown
+
+    async def safe_info(self):
+        try:
+            return await original_info(self)
+        except (plistlib.InvalidFileException, ValueError):
+            return {}
+
+    async def safe_teardown(self, *args, **kwargs):
+        try:
+            return await original_teardown(self, *args, **kwargs)
+        except RuntimeError as error:
+            if "not connected" in str(error).lower():
+                return None
+            raise
+
+    RtspSession.info = safe_info
+    RtspSession.teardown = safe_teardown
+
+
+def is_daak_receiver(config) -> bool:
+    service = config.get_service(Protocol.RAOP)
+    if service is None:
+        return False
+    properties = getattr(service, "properties", {}) or {}
+    model = str(properties.get("am", "")).lower()
+    name = str(getattr(config, "name", "")).lower()
+    return "shairport" in model or "daak" in name
+
+
+async def send(path: Path) -> str:
+    loop = asyncio.get_running_loop()
+    devices = await pyatv.scan(loop, timeout=8)
+    candidates = [device for device in devices if is_daak_receiver(device)]
+    if not candidates:
+        candidates = [
+            device for device in devices
+            if device.get_service(Protocol.RAOP) is not None
+            and device.get_service(Protocol.RAOP).port == 5000
+        ]
+    if not candidates:
+        raise RuntimeError("DAAK Mac Audio bulunamadı; Mac ve telefon aynı Wi-Fi'da olmalı")
+
+    target = candidates[0]
+    connection = await pyatv.connect(target, loop, protocol=Protocol.RAOP)
+    try:
+        await connection.stream.stream_file(str(path))
+    finally:
+        connection.close()
+    return str(getattr(target, "name", "DAAK Mac Audio"))
+
+
+def main() -> int:
+    if len(sys.argv) != 2:
+        write_status("ERROR", "Kullanım: daak-airplay <ses-dosyası>")
+        return 2
+    path = Path(os.path.expanduser(sys.argv[1])).resolve()
+    if not path.is_file():
+        write_status("ERROR", f"Dosya bulunamadı: {path}")
+        return 2
+
+    install_shairport_compatibility()
+    write_status("CONNECTING", path.name)
+    try:
+        receiver = asyncio.run(send(path))
+    except Exception as error:
+        write_status("ERROR", str(error))
+        print(f"DAAK AirPlay error: {error}", file=sys.stderr)
+        return 1
+    write_status("OK", f"{path.name} -> {receiver}")
+    queue = Path("/sdcard/Download/DAAK-AirPlay-Queue").resolve()
+    try:
+        if path.parent == queue:
+            path.unlink(missing_ok=True)
+            queue.rmdir()
+    except OSError:
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,28 @@
+#!/bin/sh
+set -eu
+
+phone_host=${DAAK_PHONE_HOST:-}
+phone_port=${DAAK_PHONE_PORT:-5555}
+
+if [ -z "$phone_host" ] && command -v tailscale >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+    phone_host=$(tailscale status --json | jq -r '
+        [.Peer[]
+            | select(.Online == true)
+            | select(.HostName == "Galaxy S9+" or .HostName == "DAAK NODE")
+            | .TailscaleIPs[]
+            | select(startswith("100."))][0] // empty')
+fi
+
+if [ -z "$phone_host" ]; then
+    echo "DAAK NODE Tailscale'de çevrimiçi bulunamadı." >&2
+    echo "Gerekirse DAAK_PHONE_HOST=<Tailscale-IP> daak-phone kullan." >&2
+    exit 1
+fi
+
+serial="$phone_host:$phone_port"
+
+command -v adb >/dev/null 2>&1 || { echo "adb is required" >&2; exit 127; }
+command -v scrcpy >/dev/null 2>&1 || { echo "scrcpy is required" >&2; exit 127; }
+
+adb connect "$serial" >/dev/null
+exec scrcpy --serial "$serial" --no-audio --stay-awake "$@"

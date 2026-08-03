@@ -1,0 +1,7 @@
+{
+  "versionCode": 30,
+  "versionName": "7.0.0",
+  "apkUrl": "https://github.com/benfirad/daak-node/releases/download/v7.0.0/DAAK-NODE.apk",
+  "sha256": "b43c3ed259f1d9e05e26ea91c8741570d3ee83938a2bd0809e5233c73e0a96fb",
+  "notes": "FIRAT NODE adı tamamen kaldırıldı: proje, GitHub deposu, Android paket kimliği, dahili aksiyonlar ve yayın zinciri artık DAAK NODE adını kullanıyor. v7 geçişi eski paketteki yerel ayarları root destekli tek seferlik taşıma ile koruyor."
+}
