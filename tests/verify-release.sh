@@ -75,6 +75,7 @@ if command -v adb >/dev/null 2>&1; then
         adb -s "$device" shell "su -c 'iptables -S INPUT'" | grep -q -- '--dport 5555 -j DAAK_SSHD_INPUT' || fail "remote ADB firewall"
         adb -s "$device" shell "su -c 'pid=\$(cat /data/adb/daak-app-cleaner.pid); kill -0 \"\$pid\"'" || fail "app cleaner service"
         adb -s "$device" shell "su -c 'test -x /data/adb/daak-keenetic-wol'" || fail "root-constrained Keenetic WOL bridge"
+        adb -s "$device" shell "su -c 'test -r /data/adb/daak-scrcpy-server.jar'" || fail "headless WOL virtual-display runtime"
         adb -s "$device" shell "su -c 'test -x /data/data/com.termux/files/home/.shortcuts/lolile-preview'" || fail "Kurek preview bridge"
         adb -s "$device" shell "su -c 'test -x /data/data/com.termux/files/home/.shortcuts/lolile-books-sync'" || fail "book backup bridge"
         adb -s "$device" shell "su -c 'test -x /data/data/com.termux/files/home/.shortcuts/daak-airplay'" || fail "free AirPlay bridge"
@@ -101,9 +102,9 @@ if command -v adb >/dev/null 2>&1; then
         printf '%s\n' "$airplay_guard" | grep -q 'data="FAIL invalid_airplay_path"' || fail "AirPlay diagnostic path guard"
         adb -s "$device" shell logcat -c
         wol_guard=$(adb -s "$device" shell am broadcast -a com.daak.node.DIAGNOSTIC_KEENETIC_WOL -p com.daak.node)
-        printf '%s\n' "$wol_guard" | grep -q 'data="PASS diagnostic_keenetic_wol=masked_and_queued"' || fail "Keenetic WOL diagnostic"
+        printf '%s\n' "$wol_guard" | grep -q 'data="PASS diagnostic_keenetic_wol=headless_and_queued"' || fail "Keenetic WOL diagnostic"
         sleep 1
-        adb -s "$device" shell logcat -d -v brief | grep -q 'DAAK_CONTROL.*WOL privacy mask shown' || fail "Keenetic WOL OLED privacy mask"
+        adb -s "$device" shell logcat -d -v brief | grep -q 'DAAK_CONTROL.*Headless WOL status shown' || fail "Keenetic WOL status capsule"
         pass "device integration checks"
     fi
 fi

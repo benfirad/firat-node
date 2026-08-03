@@ -58,11 +58,11 @@ public final class NodeDiagnosticsReceiver extends BroadcastReceiver {
             return;
         }
         if (ACTION_KEENETIC_WOL.equals(intent.getAction())) {
-            boolean masked = NodeControlAccessibilityService.showWolMask();
-            boolean queued = masked && RootActionQueue.request(context, "keenetic-wol-dry-run");
-            if (masked && !queued) NodeControlAccessibilityService.finishWol();
-            setResultData(queued ? "PASS diagnostic_keenetic_wol=masked_and_queued" :
-                    masked ? "FAIL diagnostic_keenetic_wol=queue_error" :
+            boolean prepared = NodeControlAccessibilityService.startHeadlessWol("PiizaBus", true);
+            boolean queued = prepared && RootActionQueue.request(context, "keenetic-wol-dry-run");
+            if (prepared && !queued) NodeControlAccessibilityService.finishWol();
+            setResultData(queued ? "PASS diagnostic_keenetic_wol=headless_and_queued" :
+                    prepared ? "FAIL diagnostic_keenetic_wol=queue_error" :
                     "FAIL diagnostic_keenetic_wol=gesture_service_offline");
             return;
         }

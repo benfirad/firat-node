@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">DAAK NODE</string>
-    <string name="control_service_description">DAAK Home gesture and private Keenetic WOL screen</string>
+    <string name="control_service_description">DAAK Home gesture and isolated Keenetic WOL control</string>
 </resources>

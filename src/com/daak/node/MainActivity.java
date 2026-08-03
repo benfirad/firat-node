@@ -79,6 +79,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.HttpURLConnection;
+import java.net.InterfaceAddress;
 import java.net.NetworkInterface;
 import java.net.Socket;
 import java.net.URL;
@@ -114,6 +115,8 @@ public final class MainActivity extends Activity {
     private CancellationSignal biometricCancellation;
     private long vaultUnlockedUntil;
     private boolean updateCheckRunning;
+    private String pendingWolStatus;
+    private int pendingWolGeneration = -1;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -166,8 +169,9 @@ public final class MainActivity extends Activity {
         }
         String wolStatus = intent.getStringExtra(EXTRA_WOL_STATUS);
         if (wolStatus != null) {
-            NodeControlAccessibilityService.finishWol();
-            toast(wolStatusMessage(wolStatus));
+            pendingWolStatus = wolStatus;
+            pendingWolGeneration = NodeControlAccessibilityService.wolGeneration();
+            finishPendingWolAfterHomeDraw();
             intent.removeExtra(EXTRA_WOL_STATUS);
         }
         intent.removeExtra(EXTRA_FORCE_HOME);
@@ -182,6 +186,7 @@ public final class MainActivity extends Activity {
         if ("DEVICE_LIST_UNAVAILABLE".equals(status)) return "Keenetic cihaz listesi açılamadı";
         if ("DEVICE_NOT_FOUND".equals(status)) return "PiizaBus Keenetic listesinde bulunamadı";
         if ("WOL_BUTTON_UNAVAILABLE".equals(status)) return "Keenetic WOL düğmesi bulunamadı";
+        if ("HEADLESS_UNAVAILABLE".equals(status)) return "Görünmez Keenetic ekranı başlatılamadı";
         if ("INVALID_CONFIG".equals(status)) return "Keenetic cihaz ayarı geçersiz";
         if ("INVALID_ARGUMENT".equals(status)) return "Keenetic WOL isteği geçersiz";
         if ("FAILED".equals(status)) return "Keenetic WOL beklenmedik biçimde durdu";
@@ -205,7 +210,26 @@ public final class MainActivity extends Activity {
 
     @Override public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) hideSystemBars();
+        if (hasFocus) {
+            hideSystemBars();
+            finishPendingWolAfterHomeDraw();
+        }
+    }
+
+    private void finishPendingWolAfterHomeDraw() {
+        if (pendingWolStatus == null || !hasWindowFocus()) return;
+        final String status = pendingWolStatus;
+        final int generation = pendingWolGeneration;
+        final View decor = getWindow().getDecorView();
+        decor.postOnAnimation(() -> decor.postDelayed(() -> {
+            if (!hasWindowFocus() || !status.equals(pendingWolStatus) ||
+                    generation != pendingWolGeneration) return;
+            pendingWolStatus = null;
+            pendingWolGeneration = -1;
+            if (NodeControlAccessibilityService.finishWol(generation)) {
+                toast(wolStatusMessage(status));
+            }
+        }, 350L));
     }
 
     @Override public void onConfigurationChanged(Configuration configuration) {
@@ -2860,8 +2884,15 @@ public final class MainActivity extends Activity {
         void runPower(String operation) {
             message = "POWER // " + operation.toUpperCase(Locale.US); invalidate();
             if (operation.equals("lolile-wake")) {
-                final boolean masked = NodeControlAccessibilityService.showWolMask();
-                if (!masked) {
+                if (canUseLocalLolileWol()) {
+                    runTermuxRaw("exec ~/.shortcuts/daak-power lolile-wake", true, null);
+                    toast("PiizaBus • yerel WOL arka planda gönderiliyor");
+                    return;
+                }
+                String target = nodeConfig("keenetic_wol_device", "PiizaBus").trim();
+                final boolean prepared = NodeControlAccessibilityService.startHeadlessWol(
+                        target, false);
+                if (!prepared) {
                     toast("DAAK Home hareketi kapalı • Erişilebilirlik ayarını aç");
                     openSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS);
                     return;
@@ -2877,6 +2908,23 @@ public final class MainActivity extends Activity {
                 runTermuxRaw("exec ~/.shortcuts/daak-power " + operation, true, null);
                 toast("Power command sent: " + operation);
             }
+        }
+
+        boolean canUseLocalLolileWol() {
+            String mac = nodeConfig("lolile_wol_mac", "").trim();
+            String configuredBroadcast = nodeConfig("lolile_wol_broadcast", "").trim();
+            if (!mac.matches("(?i)([0-9a-f]{2}[:-]){5}[0-9a-f]{2}") ||
+                    configuredBroadcast.length() == 0) return false;
+            try {
+                for (NetworkInterface network : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+                    if (!network.isUp() || network.isLoopback()) continue;
+                    for (InterfaceAddress address : network.getInterfaceAddresses()) {
+                        if (address.getBroadcast() != null && configuredBroadcast.equals(
+                                address.getBroadcast().getHostAddress())) return true;
+                    }
+                }
+            } catch (Exception ignored) { }
+            return false;
         }
 
         void confirmShutdown(String device) {

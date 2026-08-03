@@ -2,6 +2,6 @@
   "versionCode": 30,
   "versionName": "7.0.0",
   "apkUrl": "https://github.com/benfirad/daak-node/releases/download/v7.0.0/DAAK-NODE.apk",
-  "sha256": "c721af8e19db2efec992bcbc675b6a2d5328ca5a87f349d7938f7b6d4fb6eb70",
-  "notes": "DAAK NODE v7, eski FIRAT NODE kimliğini tamamen kaldırıp yerel ayarları koruyan tek seferlik geçişi tamamlıyor. Sistem genelindeki görünmez alt-kenar hareketi her uygulamadan DAAK Home'a dönüyor. Keenetic WOL, resmi uygulamanın oturumunu tokenlara dokunmadan simsiyah OLED gizlilik maskesinin altında kullanıyor; işlem bitince Keenetic kapanıyor ve yalnızca alttaki DAAK sonuç uyarısı kalıyor."
+  "sha256": "91e01e5f4779a59959b5f2d84b06ec087c4e7625d96ebb7d37fc9d582b9aae48",
+  "notes": "DAAK NODE v7, eski FIRAT NODE kimliğini tamamen kaldırıp yerel ayarları koruyan tek seferlik geçişi tamamlıyor. Sistem genelindeki görünmez alt-kenar hareketi her uygulamadan DAAK Home'a dönüyor. Keenetic WOL, resmi uygulamanın oturumunu tokenlara dokunmadan kısa ömürlü ve görünmez bir Android ekranında kullanıyor; fiziksel ekran DAAK Home'da kalıyor ve yalnızca alttaki durum uyarısı gösteriliyor."
 }
