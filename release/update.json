@@ -1,7 +1,7 @@
 {
-  "versionCode": 28,
-  "versionName": "6.9.6",
-  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.9.6/DAAK-NODE.apk",
-  "sha256": "7461bc1f280703e7f3d13003db39c74ecf6d4de7f9ed209013e5adbbd8be90e8",
-  "notes": "RM-OS senkronu sahipsiz kilitleri otomatik iyileştiriyor, DAAK açıldığında düşük tüketimli servisi ayağa kaldırıyor ve 5 dakikada bir Lolie güvenli aynasını yeniliyor. daakREMEMBER/Obsidian arşivi Lolie geçici olarak çevrimdışı olsa bile güncel tutuluyor; telefon ve Mac Hub zinciri uçtan uca doğrulandı."
+  "versionCode": 29,
+  "versionName": "6.9.7",
+  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.9.7/DAAK-NODE.apk",
+  "sha256": "d37a10471f0d22b5c40a18cad0d4f6ffb2b7fd780b7c17c68154888fa146c30e",
+  "notes": "Remote ekranındaki yapılandırılmış LOLILE ve Mac kartları artık Google'ın resmî Chrome Remote Desktop oturum URL'sini doğrudan açıyor. Host UUID'leri yalnızca telefonun özel config.properties dosyasında tutuluyor; CRD PIN'i, Google parolası veya OAuth anahtarı saklanmıyor. Yapılandırılmamış Bedirhan cihazları güvenli biçimde resmî cihaz listesine düşüyor."
 }

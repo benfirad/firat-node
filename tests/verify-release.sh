@@ -25,8 +25,14 @@ pass "paid AirPipe dependency absent"
 pass "clean APK build"
 
 aapt2_bin=${ANDROID_HOME:-$HOME/Library/Android/sdk}/build-tools/35.0.1/aapt2
-"$aapt2_bin" dump badging DAAK-NODE.apk | grep -q "versionCode='28'.*versionName='6.9.6'" || fail "APK version"
-pass "APK version 6.9.6 (28)"
+"$aapt2_bin" dump badging DAAK-NODE.apk | grep -q "versionCode='29'.*versionName='6.9.7'" || fail "APK version"
+pass "APK version 6.9.7 (29)"
+
+remote_test_dir=$(mktemp -d)
+javac --release 8 -d "$remote_test_dir" src/com/firat/node/RemoteRouting.java tests/RemoteRoutingTest.java
+java -cp "$remote_test_dir" com.firat.node.RemoteRoutingTest || fail "direct CRD route tests"
+rm -rf "$remote_test_dir"
+pass "direct CRD routing uses validated phone-local host IDs"
 "$aapt2_bin" dump xmltree DAAK-NODE.apk --file AndroidManifest.xml | grep -q 'OledPlayerActivity' || fail "OLED player activity"
 pass "secure OLED lock player manifest"
 
@@ -47,7 +53,7 @@ fi
 if command -v adb >/dev/null 2>&1; then
     device=${DAAK_DEVICE_SERIAL:-$(adb devices | awk '$2 == "device" {print $1; exit}')}
     if [ -n "$device" ]; then
-        adb -s "$device" shell dumpsys package com.firat.node | grep -q 'versionName=6.9.6' || fail "installed DAAK version"
+        adb -s "$device" shell dumpsys package com.firat.node | grep -q 'versionName=6.9.7' || fail "installed DAAK version"
         adb -s "$device" shell "su -c 'id'" | grep -q 'uid=0(root)' || fail "root"
         adb -s "$device" shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME | grep -q 'com.firat.node/.MainActivity' || fail "default launcher"
         adb -s "$device" shell pm path com.google.chromeremotedesktop >/dev/null || fail "Chrome Remote Desktop"
@@ -85,4 +91,4 @@ if command -v adb >/dev/null 2>&1; then
     fi
 fi
 
-printf 'DAAK NODE v6.9.6 verification complete.\n'
+printf 'DAAK NODE v6.9.7 verification complete.\n'

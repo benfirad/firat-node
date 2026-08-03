@@ -5,6 +5,14 @@ lolile_host=your-windows-node.tailnet.example
 # Optional; defaults to mac_host. daakREMEMBER listens on Tailnet TCP 45831.
 remember_host=your-mac.tailnet.example
 
+# Optional Chrome Remote Desktop host UUIDs. These are routing identifiers,
+# not CRD PINs or Google credentials. Configured cards open the official CRD
+# session URL directly; missing/invalid entries fall back to the device list.
+remote_lolile_host_id=
+remote_mac_host_id=
+remote_bedirhan_mac_host_id=
+remote_bedirhan_windows_host_id=
+
 # Optional one-tap power controls. WOL requires the wired Ethernet MAC and a
 # broadcast address reachable from the phone's current LAN.
 lolile_wol_mac=AA:BB:CC:DD:EE:FF

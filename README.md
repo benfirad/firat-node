@@ -16,7 +16,7 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Tailnet-only Mac and Windows/Lolie status, SSH and navigable `smb://lolile/kurek` SMB3 workflows
 - Last-known-good Kurek index caching, so transient SMB retries never blank the disk interface
 - daakLOLILE private dashboard integration with a live availability check and Kurek/Remote offline recovery
-- Chrome Remote Desktop hub for the Google-account device list and touch-friendly remote control
+- One-tap Chrome Remote Desktop routing for configured hosts, with the official Google device list as a safe fallback
 - Biometric-gated Lolie/Mac Wake-on-LAN and key-only SSH shutdown controls
 - Google Calendar Provider agenda with a read-only launcher view and an Obsidian Markdown mirror
 - Weather-country public/special days merged into the agenda from a weekly Nager.Date cache; no silent cloud-calendar writes
@@ -78,7 +78,7 @@ The Kurek browser uses SMB3 over the private Tailnet. Its credential file lives 
 
 daakREMEMBER traffic uses its existing HTTP snapshot/merge protocol on TCP 45831. The companion Mac service rejects non-Tailnet source addresses; Tailscale supplies the encrypted transport. DAAK NODE does not expose a new listening port.
 
-Chrome Remote Desktop authentication and device selection stay inside Google's official Android app; DAAK NODE stores no remote-device IDs or remote desktop passwords. DAAK Inbox does not write a dictated item anywhere until the user selects a destination in its confirmation dialog.
+Chrome Remote Desktop authentication and PIN entry stay on Google's official `remotedesktop.google.com` surface in Chrome. DAAK NODE may read a configured CRD host UUID from the phone-local `config.properties` file only to open Google's official session URL directly; it never stores CRD PINs, Google passwords or OAuth tokens. Missing or invalid UUIDs fall back to the official device list. DAAK Inbox does not write a dictated item anywhere until the user selects a destination in its confirmation dialog.
 
 Mac-to-phone control uses Android's authorized ADB key plus the Tailnet-only firewall. Run `companion/macos/daak-phone`; it discovers the online Galaxy S9+ through the local Tailscale CLI and launches scrcpy. Port 5555 is never accepted from Wi-Fi, cellular or the public internet. Remove `/data/adb/daak-remote-adb.enabled` and restart the Magisk service to disable it.
 

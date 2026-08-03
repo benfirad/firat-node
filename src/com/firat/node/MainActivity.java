@@ -99,7 +99,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public final class MainActivity extends Activity {
-    private static final String BUILD_VERSION = "6.9.5";
+    private static final String BUILD_VERSION = "6.9.7";
     private static final String BOOK_READER_PACKAGE = "com.foobnix.pro.pdf.reader";
     private static final int TERMUX_PERMISSION_REQUEST = 73;
     private static final int CALENDAR_PERMISSION_REQUEST = 74;
@@ -1846,7 +1846,7 @@ public final class MainActivity extends Activity {
                 int row = i / 2, col = i % 2;
                 RectF r = new RectF(left + col * (half + gap), top + row * (h + gap),
                         left + col * (half + gap) + half, top + row * (h + gap) + h);
-                button(c, r, "GOOGLE", names[i], "OPEN DEVICE LIST", i < 2, "REMOTE_CONNECT:" + i);
+                button(c, r, "GOOGLE", names[i], i < 2 ? "DIRECT CONNECT" : "HOST SETUP REQUIRED", i < 2, "REMOTE_CONNECT:" + i);
             }
             RectF configure = new RectF(left, top + dp(208), right, top + dp(266));
             button(c, configure, "GOOGLE", "REMOTE DEVICES", "SIGN IN / DEVICE LIST", false, "REMOTE_CONFIG");
@@ -1872,12 +1872,36 @@ public final class MainActivity extends Activity {
                 int row = i / 2, col = i % 2;
                 RectF r = new RectF(listLeft + col * (cell + gap), top + row * (h + gap),
                         listLeft + col * (cell + gap) + cell, top + row * (h + gap) + h);
-                button(c, r, "GOOGLE", names[i], "OPEN DEVICE LIST", i < 2, "REMOTE_CONNECT:" + i);
+                button(c, r, "GOOGLE", names[i], i < 2 ? "DIRECT CONNECT" : "HOST SETUP REQUIRED", i < 2, "REMOTE_CONNECT:" + i);
             }
         }
 
         void connectRemote(int index) {
-            launchChromeRemoteDesktop();
+            String[] keys = {
+                    "remote_lolile_host_id", "remote_mac_host_id",
+                    "remote_bedirhan_mac_host_id", "remote_bedirhan_windows_host_id"
+            };
+            if (index < 0 || index >= keys.length) {
+                launchChromeRemoteDesktop();
+                return;
+            }
+            String sessionUrl = RemoteRouting.sessionUrl(nodeConfig(keys[index], ""));
+            if (sessionUrl == null) {
+                toast("Bu cihaz için CRD host kimliği ayarlı değil");
+                launchChromeRemoteDesktop();
+                return;
+            }
+            Intent direct = new Intent(Intent.ACTION_VIEW,
+                    Uri.parse(sessionUrl));
+            // Google's Android CRD package is a TWA wrapper that rewrites an
+            // external /session URL to its start page. Chrome preserves the
+            // verified Google URL and enters the selected host directly.
+            direct.setPackage("com.android.chrome");
+            try {
+                startActivity(direct);
+            } catch (RuntimeException error) {
+                launchChromeRemoteDesktop();
+            }
         }
 
         void showRemoteConfig() {
