@@ -131,6 +131,7 @@ public final class MainActivity extends Activity {
         handleHomeIntent(getIntent());
         applyBlackWallpapers();
         removeLegacyRemoteState();
+        RememberBridge.clearLegacyAutomaticQueue(getApplicationContext());
         NodeStore.migrateLoudSound(this);
         NodeStore.schedule(this);
         ensureTermuxPermission();
@@ -142,7 +143,6 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         hideSystemBars();
-        RememberBridge.flushPending(getApplicationContext());
         if (nodeView != null) {
             nodeView.reloadApps();
             nodeView.startUpdates();
@@ -639,6 +639,8 @@ public final class MainActivity extends Activity {
         float pressGlow;
         String panelKind = "";
         final List<String> panelItems = new ArrayList<String>();
+        final List<String> panelShareTexts = new ArrayList<String>();
+        final List<String> panelShareFolders = new ArrayList<String>();
         long mailViewedAt;
         float burnX, burnY;
         long lastInteraction = System.currentTimeMillis();
@@ -1754,8 +1756,8 @@ public final class MainActivity extends Activity {
         }
 
         String panelTitle() {
-            if (panelKind.equals("MAIL")) return "MAIL // READ ONLY";
-            if (panelKind.equals("WHATSAPP")) return "WHATSAPP // TASK ROUTER";
+            if (panelKind.equals("MAIL")) return "MAIL // PHONE ONLY";
+            if (panelKind.equals("WHATSAPP")) return "WHATSAPP // PHONE ONLY";
             if (panelKind.equals("MUSIC")) return "MUSIC // LOCAL + STREAM";
             if (panelKind.equals("POWER_LOLILE")) return "POWER // LOLILE WINDOWS";
             if (panelKind.equals("POWER_MAC")) return "POWER // MY MAC";
@@ -1763,9 +1765,9 @@ public final class MainActivity extends Activity {
         }
 
         String panelStatus() {
-            if (panelKind.equals("MAIL")) return "GMAIL + THUNDERBIRD • READ ONLY";
+            if (panelKind.equals("MAIL")) return "LOCAL VAULT • TAP ONE TO SHARE";
             if (panelKind.equals("WHATSAPP")) return NodeStore.whatsAppAutomationEnabled(MainActivity.this)
-                    ? "BALANCED DETECTOR • AUTO TASKS ON" : "AUTO TASKS OFF";
+                    ? "LOCAL TASKS • TAP ONE TO SHARE" : "LOCAL TASKS OFF";
             if (panelKind.equals("MUSIC")) return "ACTIVE SESSION • OLED LOCK PLAYER";
             if (panelKind.startsWith("POWER_")) return "TAILNET SSH • WAKE-ON-LAN";
             return rememberOpenCount + " AÇIK NOT • TAILNET ONLY";
@@ -1810,6 +1812,10 @@ public final class MainActivity extends Activity {
                 type(7.2f, soft, false); c.drawText(trimText(panelItems.get(i), 44), row.left + dp(36), y + dp(28), paint);
                 if (panelKind.equals("REMEMBER") && row.top >= listTop && row.bottom <= actionTop - dp(8))
                     addHit(row, "REMEMBER_ITEM:" + i);
+                else if ((panelKind.equals("MAIL") || panelKind.equals("WHATSAPP")) &&
+                        i < panelShareTexts.size() && panelShareTexts.get(i).length() > 0 &&
+                        row.top >= listTop && row.bottom <= actionTop - dp(8))
+                    addHit(row, "PRIVATE_ITEM:" + i);
             }
             c.restore();
 
@@ -1853,6 +1859,10 @@ public final class MainActivity extends Activity {
                 type(7, soft, false); c.drawText(trimText(panelItems.get(i), 72), row.left + dp(38), y + dp(25), paint);
                 if (panelKind.equals("REMEMBER") && row.top >= top + dp(12) && row.bottom <= bottom - dp(12))
                     addHit(row, "REMEMBER_ITEM:" + i);
+                else if ((panelKind.equals("MAIL") || panelKind.equals("WHATSAPP")) &&
+                        i < panelShareTexts.size() && panelShareTexts.get(i).length() > 0 &&
+                        row.top >= top + dp(12) && row.bottom <= bottom - dp(12))
+                    addHit(row, "PRIVATE_ITEM:" + i);
             }
             c.restore();
         }
@@ -2588,11 +2598,19 @@ public final class MainActivity extends Activity {
 
         void showWhatsAppPanel() {
             ArrayList<String> rows = new ArrayList<String>();
+            ArrayList<String> shares = new ArrayList<String>();
+            ArrayList<String> folders = new ArrayList<String>();
             rows.add(NodeStore.whatsAppBridgeRow(MainActivity.this));
+            shares.add(""); folders.add("");
             List<String> tasks = NodeStore.recentWhatsAppTasks(MainActivity.this, 7);
-            if (tasks.isEmpty()) rows.add("Henüz görev cümlesi yakalanmadı");
-            else rows.addAll(tasks);
-            openInfoPanel("WHATSAPP", rows);
+            if (tasks.isEmpty()) {
+                rows.add("Henüz yerel görev cümlesi yakalanmadı");
+                shares.add(""); folders.add("");
+            } else for (String task : tasks) {
+                rows.add("TELEFONDA • " + task);
+                shares.add("WhatsApp • " + task); folders.add("whatsapp");
+            }
+            openPrivateInfoPanel("WHATSAPP", rows, shares, folders);
         }
 
         void showWhatsAppSettings() {
@@ -2605,7 +2623,7 @@ public final class MainActivity extends Activity {
             boolean enabled = NodeStore.whatsAppAutomationEnabled(MainActivity.this);
             AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
                     .setTitle("AUTO TASKS // " + (enabled ? "ON" : "OFF"))
-                    .setMessage("Yalnız görev belirten bildirimler alınır; mesaj gönderilmez.")
+                    .setMessage("Yalnız görev belirten bildirimler telefona alınır. Mac'e veya ağa otomatik gönderilmez.")
                     .setView(input)
                     .setPositiveButton("KAYDET", (d, which) -> prefs.edit()
                             .putString("ignored_whatsapp_senders", input.getText().toString()).apply())
@@ -2745,12 +2763,20 @@ public final class MainActivity extends Activity {
 
         void showMailPanel() {
             ArrayList<String> rows = new ArrayList<String>(NodeStore.mailBridgeRows(MainActivity.this));
+            ArrayList<String> shares = new ArrayList<String>();
+            ArrayList<String> folders = new ArrayList<String>();
+            for (int i = 0; i < rows.size(); i++) { shares.add(""); folders.add(""); }
             List<String> messages = NodeStore.recentMail(MainActivity.this,
-                    System.currentTimeMillis() - 24L * 60L * 60L * 1000L, 8);
-            if (messages.isEmpty()) rows.add("Son 24 saatte yeni mail yok • rahat ol");
-            else rows.addAll(messages);
+                    System.currentTimeMillis() - 24L * 60L * 60L * 1000L, 20);
+            if (messages.isEmpty()) {
+                rows.add("Son 24 saatte yeni yerel mail yok • rahat ol");
+                shares.add(""); folders.add("");
+            } else for (String mail : messages) {
+                rows.add("TELEFONDA • " + mail);
+                shares.add("Mail • " + mail); folders.add("mail");
+            }
             mailViewedAt = System.currentTimeMillis();
-            openInfoPanel("MAIL", rows);
+            openPrivateInfoPanel("MAIL", rows, shares, folders);
         }
 
         void showMailSources() {
@@ -3005,14 +3031,54 @@ public final class MainActivity extends Activity {
         void openInfoPanel(String kind, List<String> rows) {
             panelKind = kind;
             panelItems.clear(); panelItems.addAll(rows);
+            panelShareTexts.clear(); panelShareFolders.clear();
             panelScroll = 0;
             mode = INFO_PANEL;
             if (!contentScroller.isFinished()) contentScroller.abortAnimation();
             invalidate();
         }
 
+        void openPrivateInfoPanel(String kind, List<String> rows, List<String> shares,
+                                  List<String> folders) {
+            openInfoPanel(kind, rows);
+            panelShareTexts.addAll(shares);
+            panelShareFolders.addAll(folders);
+            invalidate();
+        }
+
         void closeInfoPanel() {
-            panelKind = ""; panelItems.clear(); panelScroll = 0; mailViewedAt = 0L;
+            panelKind = ""; panelItems.clear(); panelShareTexts.clear();
+            panelShareFolders.clear(); panelScroll = 0; mailViewedAt = 0L;
+        }
+
+        void showPrivateItemMenu(final int index) {
+            if (index < 0 || index >= panelShareTexts.size() ||
+                    index >= panelShareFolders.size()) return;
+            final String text = panelShareTexts.get(index);
+            final String folder = panelShareFolders.get(index);
+            if (text.length() == 0 || folder.length() == 0) return;
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("YEREL KAYIT // TELEFONDA")
+                    .setMessage("Bu kayıt otomatik paylaşılmaz. Yalnız seçtiğin bu madde Tailnet üzerinden daakREMEMBER cihazlarına gönderilsin mi?\n\n" +
+                            trimText(text, 240))
+                    .setPositiveButton("AĞA GÖNDER", (d, which) -> sendPrivateItem(text, folder))
+                    .setNeutralButton("KOPYALA", (d, which) -> copyRememberText(text))
+                    .setNegativeButton("İPTAL", null).create();
+            showDaakDialog(dialog);
+        }
+
+        void sendPrivateItem(final String text, final String folder) {
+            message = "PRIVATE // SENDING SELECTED"; invalidate();
+            JSONArray labels = new JSONArray();
+            if (folder.equals("whatsapp")) labels.put("tasks");
+            RememberBridge.sendSelected(getApplicationContext(), text, folder, labels,
+                    sent -> handler.post(() -> {
+                        if (destroyed) return;
+                        message = sent ? "PRIVATE // SELECTED ITEM SENT" : "PRIVATE // NETWORK OFFLINE";
+                        invalidate();
+                        toast(sent ? "Yalnız seçtiğin kayıt ağa gönderildi" :
+                                "Gönderilemedi; kayıt yalnız telefonda kaldı");
+                    }));
         }
 
         void panelPrimary() {
@@ -3214,6 +3280,7 @@ public final class MainActivity extends Activity {
             else if (a.equals("PANEL_TERTIARY")) panelTertiary();
             else if (a.equals("PANEL_CLOSE")) showMode(HOME);
             else if (a.startsWith("REMEMBER_ITEM:")) showRememberItemMenu(Integer.parseInt(a.substring(14)));
+            else if (a.startsWith("PRIVATE_ITEM:")) showPrivateItemMenu(Integer.parseInt(a.substring(13)));
             else if (a.equals("LOLILE_HUB")) guarded(() -> launchLolileHub());
             else if (a.equals("DICTATE")) startDictation();
             else if (a.equals("CHECK_UPDATE")) guarded(() -> maybeCheckUpdate(true));

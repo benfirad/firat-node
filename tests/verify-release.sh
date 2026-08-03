@@ -21,6 +21,16 @@ if rg -qi 'airpipe' AndroidManifest.xml src README.md companion; then
 fi
 pass "paid AirPipe dependency absent"
 
+if rg -n 'RememberBridge\.(pushOrQueue|flushPending|sendSelected)' \
+        src/com/daak/node/MailNotificationListener.java >/dev/null; then
+    fail "notification capture attempted automatic daakREMEMBER export"
+fi
+rg -q 'clearLegacyAutomaticQueue' src/com/daak/node/MainActivity.java || \
+    fail "legacy private notification queue cleanup"
+rg -q 'AĞA GÖNDER' src/com/daak/node/MainActivity.java || \
+    fail "explicit per-item network share UI"
+pass "mail and WhatsApp remain phone-local until explicit per-item share"
+
 ./build-apk.sh >/dev/null
 pass "clean APK build"
 

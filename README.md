@@ -61,10 +61,10 @@ These are real screenshots from the SM-G965F. Public showcase mode replaces priv
 - Local sender/spam filters; the launcher never sends email
 - Open-Meteo current weather using coarse device location
 - Adaptive 2/3/5-minute Lolie reconnect backoff
-- A rotating 24-hour, 40-item local mail-metadata buffer; sender/subject summaries never leave the phone and the launcher has no send path
+- A rotating 24-hour, 40-item local mail-metadata buffer; sender/subject summaries remain phone-only unless one row is explicitly selected and confirmed with `AĞA GÖNDER`
 - Native Tailnet integration with daakREMEMBER for reading, adding, editing, completing, deleting, undoing and moving notes between Inbox, Tasks, WhatsApp, Mail and Notes folders
-- Opt-in, keyword-limited WhatsApp notification-to-task capture; routed to both the WhatsApp folder and the Tasks smart view, and never sends messages
-- New Gmail/Thunderbird notification summaries are routed to daakREMEMBER's Mail folder after the existing local spam and duplicate filters
+- Opt-in, keyword-limited WhatsApp notification-to-task capture stays in the phone-local vault and never sends messages
+- Mail and WhatsApp panels expose a per-item, confirmed Tailnet share action; there is no automatic export, retry queue or bulk bridge to Mac/Windows devices
 - Official WhatsApp companion-device setup, so the node can join an existing account by QR without its own SIM
 - On-device Turkish dictation through Android's speech-recognition contract (tested with FUTO Voice Input)
 - Ten-minute cleanup for ordinary non-system apps launched from DAAK, with a narrow root-mediated 15-second force-stop for Image Toolbox, Material Files and Google Photos; messaging, VPN, mail, music and input services stay protected
@@ -105,7 +105,7 @@ DAAK NODE contains no SSH keys, passwords, OAuth tokens, Tailnet addresses or ho
 
 Copy `config.properties.example` to that path and edit it locally. Keep remote services bound to Tailscale, use key-only SSH, and do not expose Termux SSH directly to the public internet. The deployed Magisk service `companion/magisk/daak-sshd-firewall.sh` maintains an idempotent IPv4/IPv6 firewall and heartbeat; `companion/termux/daak-sshd` refuses to start sshd when that heartbeat is stale. Termux itself is never granted root.
 
-Mail access is metadata-only through Android's notification listener: sender, subject and timestamp. WhatsApp processing is limited to notification text that Android has already decrypted and displayed; only explicit task-like phrases are captured. DAAK NODE never sends mail or WhatsApp messages.
+Mail access is metadata-only through Android's notification listener: sender, subject and timestamp. WhatsApp processing is limited to notification text that Android has already decrypted and displayed; only explicit task-like phrases are captured. Both stores are local by default. A record reaches daakREMEMBER only after the user taps that exact row and confirms `AĞA GÖNDER`; failed shares stay local and are not queued for later. DAAK NODE never sends mail or WhatsApp messages.
 
 The OLED player uses Android's active MediaSession and `showWhenLocked`; it never dismisses or replaces the secure keyguard. Back/exit returns to the normal fingerprint, iris or PIN lock screen. Its automatic trigger runs only on `SCREEN_OFF` while a session is actively playing.
 
