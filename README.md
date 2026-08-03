@@ -27,8 +27,9 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Open-Meteo current weather using coarse device location
 - Adaptive 2/3/5-minute Lolie reconnect backoff
 - A rotating 24-hour, 40-item local mail-metadata buffer; sender/subject summaries never leave the phone and the launcher has no send path
-- Native Tailnet integration with daakREMEMBER for reading, adding, editing, completing, deleting and undoing deleted notes
-- Opt-in, keyword-limited WhatsApp notification-to-task capture; never sends messages
+- Native Tailnet integration with daakREMEMBER for reading, adding, editing, completing, deleting, undoing and moving notes between Inbox, Tasks, WhatsApp, Mail and Notes folders
+- Opt-in, keyword-limited WhatsApp notification-to-task capture; routed to both the WhatsApp folder and the Tasks smart view, and never sends messages
+- New Gmail/Thunderbird notification summaries are routed to daakREMEMBER's Mail folder after the existing local spam and duplicate filters
 - Official WhatsApp companion-device setup, so the node can join an existing account by QR without its own SIM
 - On-device Turkish dictation through Android's speech-recognition contract (tested with FUTO Voice Input)
 - Ten-minute cleanup for ordinary non-system apps launched from DAAK, with a narrow root-mediated 15-second force-stop for Image Toolbox, Material Files and Google Photos; messaging, VPN, mail, music and input services stay protected
@@ -42,7 +43,7 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Three normalized, embedded notification tones with immediate preview and a versioned high-importance Android channel
 - Kurek files can stream through a localhost-only, three-minute encrypted SMB3 preview rendered inline by Fennec/Firefox without a persistent phone copy, or download explicitly for offline use
 - `Kitap Meraklısına` keeps a resumable, non-deleting 2.79 GiB offline mirror under `Documents/DAAK-Vault`; Android JobScheduler runs lightweight six-hour checks only on unmetered Wi-Fi while charging, plus a weekly integrity reconciliation
-- Book's Story is integrated into the Kurek/Books panel with a Turkish, true-black OLED reading profile and persisted access to the local `Kitap Meraklısına` library; EPUB and PDF were opened from the real offline mirror on the SM-G965F (PDF text extraction can take roughly 30–60 seconds on first open)
+- Librera Reader is integrated into the Kurek/Books panel and default pinned grid with a 3-column cover gallery, internal EPUB/PDF reader and OLED night profile; all 547 files in the local `Kitap Meraklısına` mirror were indexed on the SM-G965F
 - The music source panel sends a selected local audio file to the Mac over a fully free/open-source AirPlay 1 route: pyatv on the phone and Shairport Sync on the Mac; the sender exits when playback finishes
 - Scrollable Kurek folders with path-stable live refreshes
 - One-tap Fossify Clock alarms and battery-light Plees sleep tracking from the control centre
@@ -113,7 +114,7 @@ Android additionally enforces that an upgrade carries the same signing certifica
 - [Fossify Clock](https://github.com/FossifyOrg/Clock)
 - [Plees Tracker](https://gitlab.com/vmiklos/plees-tracker)
 - [Material Files](https://github.com/zhanghai/MaterialFiles)
-- [Book's Story](https://github.com/Acclorite/book-story)
+- [Librera Reader](https://github.com/foobnix/LibreraReader)
 - [pyatv](https://github.com/postlund/pyatv)
 - [Shairport Sync](https://github.com/mikebrady/shairport-sync)
 - [daakREMEMBER](https://github.com/benfirad/daakREMEMBER)

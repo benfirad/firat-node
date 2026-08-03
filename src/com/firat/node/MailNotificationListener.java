@@ -52,7 +52,9 @@ public final class MailNotificationListener extends NotificationListenerService 
                 String sender = item.sender.equals("Unknown") ? title : item.sender;
                 if (sender.length() == 0) sender = source;
                 String fingerprint = pkg + "\n" + sender + "\n" + item.text;
-                NodeStore.addMail(context, source, sender, item.text, when, fingerprint);
+                String mail = NodeStore.addMail(context, source, sender, item.text, when, fingerprint);
+                if (mail != null) RememberBridge.pushOrQueue(
+                        context.getApplicationContext(), mail, "mail", new org.json.JSONArray());
             }
             NodeStore.schedule(context);
         } else if (pkg.equals("com.whatsapp")) {
@@ -60,7 +62,11 @@ public final class MailNotificationListener extends NotificationListenerService 
             for (NotificationCapture.Item item : items) {
                 String sender = NotificationCapture.conversationSender(title, item.sender);
                 String task = NodeStore.addWhatsAppTask(context, sender, item.text, when);
-                if (task != null) RememberBridge.pushOrQueue(context.getApplicationContext(), task);
+                if (task != null) {
+                    org.json.JSONArray labels = new org.json.JSONArray(); labels.put("tasks");
+                    RememberBridge.pushOrQueue(
+                            context.getApplicationContext(), task, "whatsapp", labels);
+                }
             }
         }
     }

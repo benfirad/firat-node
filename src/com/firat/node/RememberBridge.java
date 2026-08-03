@@ -20,9 +20,14 @@ final class RememberBridge {
     private RememberBridge() { }
 
     static void pushOrQueue(final Context context, final String text) {
+        pushOrQueue(context, text, "inbox", new JSONArray());
+    }
+
+    static void pushOrQueue(final Context context, final String text,
+                            final String folder, final JSONArray labels) {
         new Thread(new Runnable() {
             @Override public void run() {
-                if (!addNote(context, text)) enqueue(context, text);
+                if (!addNote(context, text, folder, labels)) enqueue(context, text, folder, labels);
             }
         }, "daak-remember-notification").start();
     }
@@ -35,8 +40,24 @@ final class RememberBridge {
                     JSONArray old = new JSONArray(prefs.getString(PENDING, "[]"));
                     JSONArray remaining = new JSONArray();
                     for (int i = 0; i < old.length(); i++) {
-                        String text = old.optString(i, "");
-                        if (text.length() > 0 && !addNote(context, text)) remaining.put(text);
+                        Object pending = old.opt(i);
+                        String text;
+                        String folder = "inbox";
+                        JSONArray labels = new JSONArray();
+                        if (pending instanceof JSONObject) {
+                            JSONObject object = (JSONObject)pending;
+                            text = object.optString("text", "");
+                            folder = object.optString("folder", "inbox");
+                            JSONArray savedLabels = object.optJSONArray("labels");
+                            if (savedLabels != null) labels = savedLabels;
+                        } else {
+                            text = old.optString(i, "");
+                        }
+                        if (text.length() > 0 && !addNote(context, text, folder, labels)) {
+                            JSONObject retry = new JSONObject();
+                            retry.put("text", text); retry.put("folder", folder); retry.put("labels", labels);
+                            remaining.put(retry);
+                        }
                     }
                     prefs.edit().putString(PENDING, remaining.toString()).apply();
                 } catch (Exception ignored) { }
@@ -44,7 +65,8 @@ final class RememberBridge {
         }, "daak-remember-retry").start();
     }
 
-    private static synchronized boolean addNote(Context context, String text) {
+    private static synchronized boolean addNote(Context context, String text,
+                                                String folder, JSONArray labels) {
         try {
             JSONObject snapshot = new JSONObject(new String(request(context, "GET", "/snapshot", null), "UTF-8"));
             JSONArray items = snapshot.optJSONArray("items");
@@ -57,6 +79,8 @@ final class RememberBridge {
             note.put("updatedAt", appleTime);
             note.put("isDone", false);
             note.put("deletedAt", JSONObject.NULL);
+            note.put("folder", normalizeFolder(folder));
+            if (labels != null && labels.length() > 0) note.put("labels", labels);
             items.put(note);
             JSONObject envelope = new JSONObject();
             envelope.put("deviceName", "DAAK NODE");
@@ -98,14 +122,26 @@ final class RememberBridge {
         }
     }
 
-    private static synchronized void enqueue(Context context, String text) {
+    private static synchronized void enqueue(Context context, String text,
+                                             String folder, JSONArray labels) {
         try {
             SharedPreferences prefs = context.getSharedPreferences(NodeStore.PREFS, 0);
             JSONArray old = new JSONArray(prefs.getString(PENDING, "[]"));
             JSONArray next = new JSONArray();
-            for (int i = 0; i < old.length() && next.length() < 29; i++) next.put(old.optString(i));
-            next.put(text);
+            for (int i = 0; i < old.length() && next.length() < 29; i++) next.put(old.opt(i));
+            JSONObject item = new JSONObject();
+            item.put("text", text); item.put("folder", normalizeFolder(folder));
+            item.put("labels", labels == null ? new JSONArray() : labels);
+            next.put(item);
             prefs.edit().putString(PENDING, next.toString()).apply();
         } catch (Exception ignored) { }
+    }
+
+    private static String normalizeFolder(String folder) {
+        if (folder == null) return "inbox";
+        String value = folder.toLowerCase(Locale.US);
+        if (value.equals("tasks") || value.equals("whatsapp") || value.equals("mail")
+                || value.equals("notes")) return value;
+        return "inbox";
     }
 }

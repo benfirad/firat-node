@@ -99,8 +99,8 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public final class MainActivity extends Activity {
-    private static final String BUILD_VERSION = "6.9.4";
-    private static final String BOOK_READER_PACKAGE = "ua.acclorite.book_story";
+    private static final String BUILD_VERSION = "6.9.5";
+    private static final String BOOK_READER_PACKAGE = "com.foobnix.pro.pdf.reader";
     private static final int TERMUX_PERMISSION_REQUEST = 73;
     private static final int CALENDAR_PERMISSION_REQUEST = 74;
     private static final int LOCATION_PERMISSION_REQUEST = 75;
@@ -558,6 +558,7 @@ public final class MainActivity extends Activity {
         final List<String> rememberIds = new ArrayList<String>();
         final List<String> rememberTexts = new ArrayList<String>();
         final List<Boolean> rememberDone = new ArrayList<Boolean>();
+        final List<String> rememberFolders = new ArrayList<String>();
         final List<AgendaEntry> holidayEntries = new ArrayList<AgendaEntry>();
         String diskPath = DISK_ROOT;
         int mode = HOME;
@@ -700,7 +701,7 @@ public final class MainActivity extends Activity {
 
         AppEntry pinnedApp(int index) {
             String[] defaults = {"org.oxycblt.auxio", "com.sec.android.app.camera",
-                    "io.github.yahiaangelo.filmsimulator.android", "ru.tech.imageresizershrinker"};
+                    "io.github.yahiaangelo.filmsimulator.android", BOOK_READER_PACKAGE};
             String wanted = getSharedPreferences(NodeStore.PREFS, 0).getString("pinned_" + index, defaults[index]);
             for (AppEntry app : allApps) if (app.packageName.equals(wanted)) return app;
             return new AppEntry("EMPTY", wanted);
@@ -713,6 +714,7 @@ public final class MainActivity extends Activity {
         String pinnedAction(int index) {
             AppEntry app = pinnedApp(index);
             if (index == 0 && app.packageName.equals("org.oxycblt.auxio")) return "MUSIC";
+            if (app.packageName.equals(BOOK_READER_PACKAGE)) return "BOOKS";
             return "PKG:" + app.packageName;
         }
 
@@ -885,6 +887,7 @@ public final class MainActivity extends Activity {
                     final ArrayList<String> activeIds = new ArrayList<String>();
                     final ArrayList<String> activeTexts = new ArrayList<String>();
                     final ArrayList<Boolean> activeDone = new ArrayList<Boolean>();
+                    final ArrayList<String> activeFolders = new ArrayList<String>();
                     int open = 0;
                     if (items != null) for (int i = 0; i < items.length(); i++) {
                         JSONObject item = items.optJSONObject(i);
@@ -903,10 +906,12 @@ public final class MainActivity extends Activity {
                         JSONObject item = active.get(i);
                         String text = item.optString("text", "").trim();
                         boolean done = item.optBoolean("isDone", false);
-                        activeItems.add((done ? "✓ " : "• ") + text);
+                        String folder = rememberFolder(item);
+                        activeItems.add((done ? "✓ " : "• ") + "[" + folderLabel(folder) + "] " + text);
                         activeIds.add(item.optString("id", ""));
                         activeTexts.add(text);
                         activeDone.add(done);
+                        activeFolders.add(folder);
                     }
                     final int openFinal = open;
                     handler.post(() -> {
@@ -915,6 +920,7 @@ public final class MainActivity extends Activity {
                         rememberIds.clear(); rememberIds.addAll(activeIds);
                         rememberTexts.clear(); rememberTexts.addAll(activeTexts);
                         rememberDone.clear(); rememberDone.addAll(activeDone);
+                        rememberFolders.clear(); rememberFolders.addAll(activeFolders);
                         rememberLine = activeItems.isEmpty() ? "NOT YOK • TAP TO CAPTURE" : openFinal + " OPEN • " + activeItems.get(0).substring(2);
                         if (mode == INFO_PANEL && panelKind.equals("REMEMBER")) {
                             panelItems.clear(); panelItems.addAll(activeItems);
@@ -933,17 +939,92 @@ public final class MainActivity extends Activity {
             final String id = rememberIds.get(index);
             final String text = rememberTexts.get(index);
             final boolean done = rememberDone.get(index);
-            final String[] options = {done ? "YENİDEN AÇ" : "TAMAMLANDI", "DÜZENLE", "KOPYALA", "SİL"};
+            final String[] options = {done ? "YENİDEN AÇ" : "TAMAMLANDI", "DÜZENLE", "KLASÖRE TAŞI", "KOPYALA", "SİL"};
             AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
                     .setTitle("REMEMBER // " + trimText(text, 38))
                     .setItems(options, (d, which) -> {
                         if (which == 0) mutateRememberNote(id, "done", text, !done, false);
                         else if (which == 1) showRememberEdit(id, text, done);
-                        else if (which == 2) copyRememberText(text);
+                        else if (which == 2) showRememberFolderPicker(id, text, done);
+                        else if (which == 3) copyRememberText(text);
                         else confirmRememberDelete(id, text, done);
                     })
                     .setNegativeButton("KAPAT", null).create();
             showDaakDialog(dialog);
+        }
+
+        String rememberFolder(JSONObject item) {
+            String folder = item.optString("folder", "").toLowerCase(Locale.US);
+            if (folder.equals("inbox") || folder.equals("tasks") || folder.equals("whatsapp")
+                    || folder.equals("mail") || folder.equals("notes")) return folder;
+            String text = item.optString("text", "").toLowerCase(new Locale("tr", "TR"));
+            if (text.startsWith("whatsapp •")) return "whatsapp";
+            if (text.startsWith("mail •") || text.startsWith("gmail •")
+                    || text.startsWith("thunderbird •")) return "mail";
+            return "inbox";
+        }
+
+        String folderLabel(String folder) {
+            if (folder.equals("tasks")) return "YAPILACAK";
+            if (folder.equals("whatsapp")) return "WHATSAPP";
+            if (folder.equals("mail")) return "MAIL";
+            if (folder.equals("notes")) return "NOT";
+            return "GELEN";
+        }
+
+        void showRememberFolderPicker(final String id, final String text, final boolean done) {
+            final String[] labels = {"GELENLER", "YAPILACAKLAR", "WHATSAPP", "MAİLLER", "NOTLAR"};
+            final String[] values = {"inbox", "tasks", "whatsapp", "mail", "notes"};
+            new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("REMEMBER // KLASÖRE TAŞI")
+                    .setItems(labels, (d, which) -> mutateRememberFolder(id, text, done, values[which]))
+                    .setNegativeButton("İPTAL", null).show();
+        }
+
+        void mutateRememberFolder(final String id, final String text, final boolean done, final String folder) {
+            message = "REMEMBER // MOVING"; invalidate();
+            new Thread(() -> {
+                try {
+                    JSONObject snapshot = new JSONObject(new String(rememberRequest("GET", "/snapshot", null), "UTF-8"));
+                    JSONArray items = snapshot.optJSONArray("items");
+                    if (items == null) throw new IllegalStateException("empty snapshot");
+                    JSONObject selected = null;
+                    for (int i = 0; i < items.length(); i++) {
+                        JSONObject candidate = items.optJSONObject(i);
+                        if (candidate != null && id.equalsIgnoreCase(candidate.optString("id", ""))) {
+                            selected = candidate; break;
+                        }
+                    }
+                    if (selected == null) throw new IllegalStateException("note missing");
+                    selected.put("folder", folder);
+                    if (folder.equals("tasks")) {
+                        JSONArray labels = selected.optJSONArray("labels");
+                        if (labels == null) labels = new JSONArray();
+                        boolean found = false;
+                        for (int i = 0; i < labels.length(); i++) if ("tasks".equals(labels.optString(i))) found = true;
+                        if (!found) labels.put("tasks");
+                        selected.put("labels", labels);
+                    } else {
+                        JSONArray oldLabels = selected.optJSONArray("labels");
+                        if (oldLabels != null) {
+                            JSONArray nextLabels = new JSONArray();
+                            for (int i = 0; i < oldLabels.length(); i++) {
+                                String label = oldLabels.optString(i);
+                                if (!"tasks".equals(label)) nextLabels.put(label);
+                            }
+                            if (nextLabels.length() == 0) selected.remove("labels");
+                            else selected.put("labels", nextLabels);
+                        }
+                    }
+                    double now = System.currentTimeMillis() / 1000.0 - 978307200.0;
+                    selected.put("updatedAt", Math.max(now, selected.optDouble("updatedAt", 0) + 0.001));
+                    JSONObject envelope = new JSONObject(); envelope.put("deviceName", "DAAK NODE"); envelope.put("items", items);
+                    rememberRequest("POST", "/merge", envelope.toString().getBytes("UTF-8"));
+                    handler.post(() -> { if (!destroyed) { message = "REMEMBER // " + folderLabel(folder); refreshRemember(); invalidate(); } });
+                } catch (Exception error) {
+                    handler.post(() -> { if (!destroyed) { message = "REMEMBER // MOVE FAILED"; invalidate(); } });
+                }
+            }, "node-remember-folder").start();
         }
 
         void showRememberEdit(final String id, String text, final boolean done) {
@@ -1024,6 +1105,10 @@ public final class MainActivity extends Activity {
         }
 
         void addRememberNote(final String rawText) {
+            addRememberNote(rawText, "inbox");
+        }
+
+        void addRememberNote(final String rawText, final String folder) {
             final String text = rawText.trim();
             if (text.length() == 0) return;
             message = "REMEMBER // SENDING"; invalidate();
@@ -1036,7 +1121,8 @@ public final class MainActivity extends Activity {
                     JSONObject note = new JSONObject();
                     note.put("id", UUID.randomUUID().toString().toUpperCase(Locale.US));
                     note.put("text", text); note.put("createdAt", appleTime); note.put("updatedAt", appleTime);
-                    note.put("isDone", false); note.put("deletedAt", JSONObject.NULL); items.put(note);
+                    note.put("isDone", false); note.put("deletedAt", JSONObject.NULL);
+                    note.put("folder", folder); items.put(note);
                     JSONObject envelope = new JSONObject(); envelope.put("deviceName", "DAAK NODE"); envelope.put("items", items);
                     rememberRequest("POST", "/merge", envelope.toString().getBytes("UTF-8"));
                     handler.post(() -> { if (!destroyed) { message = "REMEMBER // SYNCED"; syncObsidian(true); refreshRemember(); } });
@@ -2244,8 +2330,8 @@ public final class MainActivity extends Activity {
             }
             AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
                     .setTitle("KİTAP MERAKLISINA // OLED")
-                    .setMessage("Book's Story • tam siyah okuma profili\n" +
-                            "EPUB hemen açılır • PDF ilk metin çıkarımı 30–60 sn sürebilir\n\n" + detail)
+                    .setMessage("Librera • 3 sütunlu kapak galerisi • OLED gece profili\n" +
+                            "547 kitap otomatik bulundu • EPUB + PDF dahili okuyucu\n\n" + detail)
                     .setPositiveButton("OKUYUCU", (d, which) -> openBookReader())
                     .setNeutralButton("YEDEKLE", (d, which) -> {
                         diskMessage = "Book backup started • Wi-Fi / SMB3";
@@ -2259,10 +2345,19 @@ public final class MainActivity extends Activity {
 
         void openBookReader() {
             if (getPackageManager().getLaunchIntentForPackage(BOOK_READER_PACKAGE) == null) {
-                toast("Book's Story bulunamadı • F-Droid üzerinden kur");
+                toast("Librera bulunamadı • F-Droid sürümünü kur");
                 return;
             }
-            launchPackage(BOOK_READER_PACKAGE);
+            try {
+                Intent library = new Intent(Intent.ACTION_MAIN)
+                        .addCategory(Intent.CATEGORY_LAUNCHER)
+                        .setClassName(BOOK_READER_PACKAGE, "com.foobnix.ui2.MainTabs2")
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                noteExternalLaunch(BOOK_READER_PACKAGE);
+                startActivity(library);
+            } catch (RuntimeException error) {
+                launchPackage(BOOK_READER_PACKAGE);
+            }
         }
 
         void openBookBackupFolder() {
@@ -2799,9 +2894,20 @@ public final class MainActivity extends Activity {
             AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
                     .setTitle("REMEMBER // QUICK CAPTURE")
                     .setView(input)
-                    .setPositiveButton("MAC'E SENKRONLA", (d, which) -> addRememberNote(input.getText().toString()))
+                    .setPositiveButton("KLASÖR SEÇ", (d, which) -> showNewRememberFolderPicker(input.getText().toString()))
                     .setNegativeButton("İPTAL", null).create();
             showDaakDialog(dialog);
+        }
+
+        void showNewRememberFolderPicker(final String rawText) {
+            final String text = rawText.trim();
+            if (text.length() == 0) { toast("Boş not kaydedilmedi"); return; }
+            final String[] labels = {"GELENLER", "YAPILACAKLAR", "NOTLAR", "WHATSAPP", "MAİLLER"};
+            final String[] values = {"inbox", "tasks", "notes", "whatsapp", "mail"};
+            new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("REMEMBER // KAYIT KLASÖRÜ")
+                    .setItems(labels, (d, which) -> addRememberNote(text, values[which]))
+                    .setNegativeButton("İPTAL", null).show();
         }
 
         void launchObsidian() {
@@ -2949,6 +3055,7 @@ public final class MainActivity extends Activity {
             else if (a.equals("PINS")) showPinnedManager();
             else if (a.equals("WHATSAPP")) showWhatsAppPanel();
             else if (a.equals("MUSIC")) showMusicPanel();
+            else if (a.equals("BOOKS")) openBookReader();
             else if (a.equals("POWER_LOLILE")) showPowerPanel("lolile");
             else if (a.equals("POWER_MAC")) showPowerPanel("mac");
             else if (a.equals("PANEL_PRIMARY")) panelPrimary();

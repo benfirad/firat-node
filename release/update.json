@@ -1,7 +1,7 @@
 {
-  "versionCode": 26,
-  "versionName": "6.9.4",
-  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.9.4/DAAK-NODE.apk",
-  "sha256": "e5bd12c8a55c5b44f7cb91057bbd4714b9e9e9b2657ddced5a41ecd3b8c09b1e",
-  "notes": "Book's Story gerçek Kitap Meraklısına yedeğinde EPUB/PDF ile doğrulandı ve PDF ilk açılış gecikmesi arayüzde açıklandı. DAAK müzik paneline pyatv + Shairport Sync tabanlı, ücretsiz ve açık kaynak yerel AirPlay dosya aktarımı eklendi."
+  "versionCode": 27,
+  "versionName": "6.9.5",
+  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.9.5/DAAK-NODE.apk",
+  "sha256": "ee4976e707d30600c9cd58bcb2bf27b349cdc05464e1e288ef6a3fc30cf7642d",
+  "notes": "Librera F-Droid, 547 kitaplık üç sütunlu OLED kapak galerisi ve dahili EPUB/PDF okuyucu olarak DAAK ana ekranına eklendi. daakREMEMBER artık Gelenler, Yapılacaklar, WhatsApp, Mailler ve Notlar klasörlerini; klasöre taşıma akışını ve otomatik mail/WhatsApp yönlendirmesini destekliyor."
 }

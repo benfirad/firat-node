@@ -115,19 +115,19 @@ final class NodeStore {
         return false;
     }
 
-    static synchronized void addMail(Context context, String source, String sender, String subject,
-                                     long when, String fingerprint) {
+    static synchronized String addMail(Context context, String source, String sender, String subject,
+                                       long when, String fingerprint) {
         if (source == null) source = "Mail";
         if (sender == null) sender = "Unknown sender";
         if (subject == null) subject = "(no subject)";
-        if (ignored(context, sender, subject)) return;
+        if (ignored(context, sender, subject)) return null;
         try {
             SharedPreferences prefs = context.getSharedPreferences(PREFS, 0);
             JSONArray seen = new JSONArray(prefs.getString("mail_seen", "[]"));
             if (fingerprint == null) fingerprint = source + "\n" + sender + "\n" + subject;
             fingerprint = Integer.toHexString(fingerprint.hashCode());
             for (int i = 0; i < seen.length(); i++)
-                if (fingerprint.equals(seen.optString(i))) return;
+                if (fingerprint.equals(seen.optString(i))) return null;
             JSONArray nextSeen = new JSONArray(); nextSeen.put(fingerprint);
             for (int i = 0; i < seen.length() && nextSeen.length() < 80; i++)
                 nextSeen.put(seen.optString(i));
@@ -147,7 +147,8 @@ final class NodeStore {
             }
             prefs.edit().putString("mail_seen", nextSeen.toString())
                     .putString("mail_items", next.toString()).apply();
-        } catch (Exception ignored) { }
+            return "Mail • " + source + " • " + sender + " — " + subject;
+        } catch (Exception ignored) { return null; }
     }
 
     static List<String> recentMail(Context context, long since, int limit) {
