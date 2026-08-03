@@ -20,8 +20,10 @@ pass "Kurek bridge syntax"
 pass "clean APK build"
 
 aapt2_bin=${ANDROID_HOME:-$HOME/Library/Android/sdk}/build-tools/35.0.1/aapt2
-"$aapt2_bin" dump badging DAAK-NODE.apk | grep -q "versionCode='24'.*versionName='6.9.2'" || fail "APK version"
-pass "APK version 6.9.2 (24)"
+"$aapt2_bin" dump badging DAAK-NODE.apk | grep -q "versionCode='25'.*versionName='6.9.3'" || fail "APK version"
+pass "APK version 6.9.3 (25)"
+"$aapt2_bin" dump xmltree DAAK-NODE.apk --file AndroidManifest.xml | grep -q 'OledPlayerActivity' || fail "OLED player activity"
+pass "secure OLED lock player manifest"
 
 for tone in daak_pulse deep_node terminal_tick; do
     unzip -l DAAK-NODE.apk | grep -q "res/raw/$tone.ogg" || fail "embedded tone $tone"
@@ -40,7 +42,7 @@ fi
 if command -v adb >/dev/null 2>&1; then
     device=${DAAK_DEVICE_SERIAL:-$(adb devices | awk '$2 == "device" {print $1; exit}')}
     if [ -n "$device" ]; then
-        adb -s "$device" shell dumpsys package com.firat.node | grep -q 'versionName=6.9.2' || fail "installed DAAK version"
+        adb -s "$device" shell dumpsys package com.firat.node | grep -q 'versionName=6.9.3' || fail "installed DAAK version"
         adb -s "$device" shell "su -c 'id'" | grep -q 'uid=0(root)' || fail "root"
         adb -s "$device" shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME | grep -q 'com.firat.node/.MainActivity' || fail "default launcher"
         adb -s "$device" shell pm path com.google.chromeremotedesktop >/dev/null || fail "Chrome Remote Desktop"
@@ -65,8 +67,10 @@ if command -v adb >/dev/null 2>&1; then
         adb -s "$device" shell pm path org.mozilla.fennec_fdroid >/dev/null || fail "Fennec inline preview"
         [ "$(adb -s "$device" shell getprop service.adb.tcp.port | tr -d '\r')" = 5555 ] || fail "remote ADB service"
         adb -s "$device" shell dumpsys notification --noredact | grep -q 'daak_summary_loud_v1_' || fail "DAAK loud channel"
+        capture_test=$(adb -s "$device" shell am broadcast -a com.firat.node.DIAGNOSTIC_NOTIFICATION_CAPTURE -n com.firat.node/.NodeDiagnosticsReceiver)
+        printf '%s\n' "$capture_test" | grep -q 'data="PASS .*mail_storage=true whatsapp_storage=true"' || fail "mail/WhatsApp capture self-test"
         pass "device integration checks"
     fi
 fi
 
-printf 'DAAK NODE v6.9.2 verification complete.\n'
+printf 'DAAK NODE v6.9.3 verification complete.\n'

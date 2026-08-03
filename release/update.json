@@ -1,7 +1,7 @@
 {
-  "versionCode": 24,
-  "versionName": "6.9.2",
-  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.9.2/DAAK-NODE.apk",
-  "sha256": "8e9631336acd4b5b8d54f1d7c3ade6b0578e040b59ad6430fc4764393d622a94",
-  "notes": "Book's Story 1.8.0 doğrudan DAAK NODE kitap paneline entegre edildi; Türkçe arayüz, gerçek siyah DAAK OLED okuma profili, yerel Kitap Meraklısına klasör yetkisi ve okuyucu/yedek/dosya kısayolları eklendi."
+  "versionCode": 25,
+  "versionName": "6.9.3",
+  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.9.3/DAAK-NODE.apk",
+  "sha256": "250c03e718fdec0f1a828fe44bede041697398ab5906fbe7b1d10f973ac31c93",
+  "notes": "Gmail ve Thunderbird bildirim köprüleri modern mesaj biçimleriyle onarıldı; WhatsApp görev yakalama filtresi, tekrar ve sistem gürültüsü temizliği geliştirildi. Aktif müzikte güvenli Android kilidini koruyan tam siyah DAAK OLED Player eklendi."
 }

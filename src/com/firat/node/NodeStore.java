@@ -20,8 +20,10 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 final class NodeStore {
     static final String PREFS = "firat_node_private";
@@ -113,21 +115,38 @@ final class NodeStore {
         return false;
     }
 
-    static synchronized void addMail(Context context, String sender, String subject, long when) {
+    static synchronized void addMail(Context context, String source, String sender, String subject,
+                                     long when, String fingerprint) {
+        if (source == null) source = "Mail";
         if (sender == null) sender = "Unknown sender";
         if (subject == null) subject = "(no subject)";
         if (ignored(context, sender, subject)) return;
         try {
             SharedPreferences prefs = context.getSharedPreferences(PREFS, 0);
+            JSONArray seen = new JSONArray(prefs.getString("mail_seen", "[]"));
+            if (fingerprint == null) fingerprint = source + "\n" + sender + "\n" + subject;
+            fingerprint = Integer.toHexString(fingerprint.hashCode());
+            for (int i = 0; i < seen.length(); i++)
+                if (fingerprint.equals(seen.optString(i))) return;
+            JSONArray nextSeen = new JSONArray(); nextSeen.put(fingerprint);
+            for (int i = 0; i < seen.length() && nextSeen.length() < 80; i++)
+                nextSeen.put(seen.optString(i));
+
             JSONArray old = new JSONArray(prefs.getString("mail_items", "[]"));
             JSONArray next = new JSONArray();
             JSONObject fresh = new JSONObject();
+            fresh.put("source", source.substring(0, Math.min(source.length(), 40)));
             fresh.put("sender", sender.substring(0, Math.min(sender.length(), 120)));
             fresh.put("subject", subject.substring(0, Math.min(subject.length(), 180)));
             fresh.put("when", when);
             next.put(fresh);
-            for (int i = 0; i < old.length() && next.length() < 30; i++) next.put(old.getJSONObject(i));
-            prefs.edit().putString("mail_items", next.toString()).apply();
+            long oldest = System.currentTimeMillis() - 24L * 60L * 60L * 1000L;
+            for (int i = 0; i < old.length() && next.length() < 40; i++) {
+                JSONObject item = old.optJSONObject(i);
+                if (item != null && item.optLong("when", 0L) >= oldest) next.put(item);
+            }
+            prefs.edit().putString("mail_seen", nextSeen.toString())
+                    .putString("mail_items", next.toString()).apply();
         } catch (Exception ignored) { }
     }
 
@@ -138,7 +157,8 @@ final class NodeStore {
             for (int i = 0; i < items.length() && rows.size() < limit; i++) {
                 JSONObject item = items.getJSONObject(i);
                 if (item.optLong("when", 0) < since) continue;
-                rows.add(item.optString("sender") + " — " + item.optString("subject"));
+                String source = item.optString("source", "Mail");
+                rows.add(source + " • " + item.optString("sender") + " — " + item.optString("subject"));
             }
         } catch (Exception ignored) { }
         return rows;
@@ -150,7 +170,7 @@ final class NodeStore {
         sender = sender.trim(); text = text.trim();
         if (text.length() == 0 || !whatsAppAutomationEnabled(context) || ignoredWhatsApp(context, sender, text)) return null;
         if (!looksActionable(text)) return null;
-        String fingerprint = Integer.toHexString((sender + "\n" + text).hashCode());
+        String fingerprint = Integer.toHexString(canonicalWhatsAppText(text).hashCode());
         try {
             SharedPreferences prefs = context.getSharedPreferences(PREFS, 0);
             JSONArray seen = new JSONArray(prefs.getString("whatsapp_seen", "[]"));
@@ -159,6 +179,11 @@ final class NodeStore {
             for (int i = 0; i < seen.length() && nextSeen.length() < 50; i++) nextSeen.put(seen.optString(i));
 
             JSONArray old = new JSONArray(prefs.getString("whatsapp_tasks", "[]"));
+            for (int i = 0; i < old.length(); i++) {
+                JSONObject existing = old.optJSONObject(i);
+                if (existing != null && fingerprint.equals(Integer.toHexString(
+                        canonicalWhatsAppText(existing.optString("text")).hashCode()))) return null;
+            }
             JSONArray next = new JSONArray();
             JSONObject fresh = new JSONObject();
             fresh.put("sender", sender.substring(0, Math.min(sender.length(), 120)));
@@ -172,14 +197,30 @@ final class NodeStore {
 
     static List<String> recentWhatsAppTasks(Context context, int limit) {
         List<String> rows = new ArrayList<String>();
+        HashSet<String> seenText = new HashSet<String>();
         try {
             JSONArray items = new JSONArray(context.getSharedPreferences(PREFS, 0).getString("whatsapp_tasks", "[]"));
             for (int i = 0; i < items.length() && rows.size() < limit; i++) {
                 JSONObject item = items.getJSONObject(i);
-                rows.add(item.optString("sender") + " — " + item.optString("text"));
+                String sender = item.optString("sender"), text = item.optString("text");
+                if (!looksActionable(text)) continue;
+                String normalized = canonicalWhatsAppText(text);
+                if (!seenText.add(normalized)) continue;
+                rows.add(sender + " — " + text);
             }
         } catch (Exception ignored) { }
         return rows;
+    }
+
+    private static String canonicalWhatsAppText(String text) {
+        String normalized = text.toLowerCase(new Locale("tr", "TR")).replaceAll("\\s+", " ").trim();
+        int colon = normalized.indexOf(':');
+        if (colon > 0 && colon < 60) {
+            String prefix = normalized.substring(0, colon);
+            if (!prefix.contains("http") && prefix.split(" ").length <= 6)
+                normalized = normalized.substring(colon + 1).trim();
+        }
+        return normalized;
     }
 
     static boolean whatsAppAutomationEnabled(Context context) {
@@ -198,11 +239,81 @@ final class NodeStore {
 
     private static boolean looksActionable(String text) {
         String value = text.toLowerCase(new Locale("tr", "TR"));
+        String[] noise = {"yeni mesajları kontrol", "mesaj bekleniyor", "checking for new messages",
+                "whatsapp web", "yedekleme yapılıyor", "backup in progress",
+                "todo listo para empezar a chatear", "ready to start chatting"};
+        for (String marker : noise) if (value.contains(marker)) return false;
         String[] markers = {"unutma", "hatırlat", "hatirlat", "yapar mısın", "yapar misin",
-                "yapabilir misin", "lütfen", "lutfen", "gönder", "gonder", "ara ", "alır mısın",
-                "alir misin", "getir", "son tarih", "deadline", "todo", "yapılacak", "yapilacak"};
+                "yapabilir misin", "bakabilir misin", "kontrol eder misin", "lütfen", "lutfen",
+                "gönder", "gonder", "arar mısın", "arar misin", "yazabilir misin",
+                "alır mısın", "alir misin", "getir", "götür", "gotur",
+                "randevu", "rezervasyon", "toplantı", "toplanti", "son tarih", "son gün",
+                "deadline", "due date", "todo:", "todo -", "#todo", "to-do", "yapılacak", "yapilacak",
+                "yarın ", "yarin ", "bugün ", "bugun ", "saat kaçta", "saat kacta"};
         for (String marker : markers) if (value.contains(marker)) return true;
-        return false;
+        return startsAsWord(value, "ara") || startsAsWord(value, "öde") || startsAsWord(value, "ode");
+    }
+
+    private static boolean startsAsWord(String value, String stem) {
+        return Pattern.compile("(^|[^\\p{L}])" + Pattern.quote(stem), Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE)
+                .matcher(value).find();
+    }
+
+    static boolean actionableForTest(String text) { return looksActionable(text == null ? "" : text); }
+
+    static void noteCapture(Context context, String source) {
+        String key = source.toLowerCase(Locale.US).replaceAll("[^a-z]", "");
+        SharedPreferences prefs = context.getSharedPreferences(PREFS, 0);
+        prefs.edit().putLong("capture_" + key + "_last", System.currentTimeMillis())
+                .putInt("capture_" + key + "_count", prefs.getInt("capture_" + key + "_count", 0) + 1)
+                .apply();
+    }
+
+    static void noteListenerConnected(Context context) {
+        context.getSharedPreferences(PREFS, 0).edit()
+                .putLong("notification_listener_connected", System.currentTimeMillis()).apply();
+    }
+
+    static List<String> mailBridgeRows(Context context) {
+        List<String> rows = new ArrayList<String>();
+        SharedPreferences prefs = context.getSharedPreferences(PREFS, 0);
+        rows.add("BRIDGE • " + age(prefs.getLong("notification_listener_connected", 0L)));
+        rows.add(appStatus(context, "com.google.android.gm", "GMAIL", "gmail", prefs));
+        rows.add(appStatus(context, "net.thunderbird.android", "THUNDERBIRD", "thunderbird", prefs));
+        return rows;
+    }
+
+    static String whatsAppBridgeRow(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS, 0);
+        return "WHATSAPP SIGNAL • " + age(prefs.getLong("capture_whatsapp_last", 0L));
+    }
+
+    private static String appStatus(Context context, String packageName, String label, String key,
+                                    SharedPreferences prefs) {
+        try { context.getPackageManager().getPackageInfo(packageName, 0); }
+        catch (Exception error) { return label + " • NOT INSTALLED"; }
+        int count = prefs.getInt("capture_" + key + "_count", 0);
+        return label + " • " + age(prefs.getLong("capture_" + key + "_last", 0L)) + " • " + count;
+    }
+
+    private static String age(long when) {
+        if (when <= 0L) return "READY / NO SIGNAL YET";
+        long minutes = Math.max(0L, (System.currentTimeMillis() - when) / 60000L);
+        if (minutes < 1L) return "ACTIVE NOW";
+        if (minutes < 60L) return minutes + " MIN AGO";
+        long hours = minutes / 60L;
+        if (hours < 24L) return hours + " H AGO";
+        return (hours / 24L) + " D AGO";
+    }
+
+    static boolean oledLockPlayerEnabled(Context context) {
+        return context.getSharedPreferences(PREFS, 0).getBoolean("oled_lock_player", true);
+    }
+
+    static boolean toggleOledLockPlayer(Context context) {
+        boolean enabled = !oledLockPlayerEnabled(context);
+        context.getSharedPreferences(PREFS, 0).edit().putBoolean("oled_lock_player", enabled).apply();
+        return enabled;
     }
 
     static synchronized void clearMailBefore(Context context, long cutoff) {

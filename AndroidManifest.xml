@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.firat.node"
-    android:versionCode="24"
-    android:versionName="6.9.2">
+    android:versionCode="25"
+    android:versionName="6.9.3">
 
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="29" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -44,6 +44,13 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".OledPlayerActivity"
+            android:configChanges="orientation|screenSize"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:showWhenLocked="true"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
         <service
             android:name=".MailNotificationListener"
             android:exported="true"
@@ -63,6 +70,16 @@
             android:exported="false"
             android:grantUriPermissions="true" />
         <receiver android:name=".NodeAlarmReceiver" android:exported="false" />
+        <receiver
+            android:name=".NodeDiagnosticsReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="com.firat.node.DIAGNOSTIC_NOTIFICATION_CAPTURE" />
+                <action android:name="com.firat.node.DIAGNOSTIC_MEDIA_START" />
+                <action android:name="com.firat.node.DIAGNOSTIC_MEDIA_STOP" />
+            </intent-filter>
+        </receiver>
         <receiver android:name=".NodeBootReceiver" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

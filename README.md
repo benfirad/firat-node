@@ -20,12 +20,13 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Biometric-gated Lolie/Mac Wake-on-LAN and key-only SSH shutdown controls
 - Google Calendar Provider agenda with a read-only launcher view and an Obsidian Markdown mirror
 - Weather-country public/special days merged into the agenda from a weekly Nager.Date cache; no silent cloud-calendar writes
-- Gmail + Thunderbird notification summaries at 07:30 and every hour
+- Gmail + Thunderbird notification summaries at 07:30 and every hour, with MessagingStyle/InboxStyle parsing, duplicate suppression and per-source bridge health
 - Unified MediaSession controls and source chooser for Auxio, YouTube Music and Spotify; Auxio remains the full-offline library for user-owned files
+- Secure true-black OLED lock player with artwork, progress, previous/play-pause/next controls and automatic screen-off activation while media is playing; Android/Knox keyguard remains locked underneath
 - Local sender/spam filters; the launcher never sends email
 - Open-Meteo current weather using coarse device location
 - Adaptive 2/3/5-minute Lolie reconnect backoff
-- Ten-minute expiry for mail metadata viewed inside the launcher
+- A rotating 24-hour, 40-item local mail-metadata buffer; sender/subject summaries never leave the phone and the launcher has no send path
 - Native Tailnet integration with daakREMEMBER for reading, adding, editing, completing, deleting and undoing deleted notes
 - Opt-in, keyword-limited WhatsApp notification-to-task capture; never sends messages
 - Official WhatsApp companion-device setup, so the node can join an existing account by QR without its own SIM
@@ -67,6 +68,8 @@ DAAK NODE contains no SSH keys, passwords, OAuth tokens, Tailnet addresses or ho
 Copy `config.properties.example` to that path and edit it locally. Keep remote services bound to Tailscale, use key-only SSH, and do not expose Termux SSH directly to the public internet. The deployed Magisk service `companion/magisk/daak-sshd-firewall.sh` maintains an idempotent IPv4/IPv6 firewall and heartbeat; `companion/termux/daak-sshd` refuses to start sshd when that heartbeat is stale. Termux itself is never granted root.
 
 Mail access is metadata-only through Android's notification listener: sender, subject and timestamp. WhatsApp processing is limited to notification text that Android has already decrypted and displayed; only explicit task-like phrases are captured. DAAK NODE never sends mail or WhatsApp messages.
+
+The OLED player uses Android's active MediaSession and `showWhenLocked`; it never dismisses or replaces the secure keyguard. Back/exit returns to the normal fingerprint, iris or PIN lock screen. Its automatic trigger runs only on `SCREEN_OFF` while a session is actively playing.
 
 The Kurek browser uses SMB3 over the private Tailnet. Its credential file lives inside Termux with mode `0600`; the launcher and repository never contain the SMB password.
 

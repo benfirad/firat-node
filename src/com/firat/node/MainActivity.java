@@ -98,7 +98,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public final class MainActivity extends Activity {
-    private static final String BUILD_VERSION = "6.9.2";
+    private static final String BUILD_VERSION = "6.9.3";
     private static final String BOOK_READER_PACKAGE = "ua.acclorite.book_story";
     private static final int TERMUX_PERMISSION_REQUEST = 73;
     private static final int CALENDAR_PERMISSION_REQUEST = 74;
@@ -746,7 +746,7 @@ public final class MainActivity extends Activity {
 
         void updateMailLine() {
             List<String> rows = NodeStore.recentMail(MainActivity.this, System.currentTimeMillis() - 24L * 60L * 60L * 1000L, 1);
-            mailLine = rows.isEmpty() ? "Yeni mail yok • rahat ol" : rows.get(0);
+            mailLine = rows.isEmpty() ? "Gmail + Thunderbird hazır" : rows.get(0);
             List<String> whatsApp = NodeStore.recentWhatsAppTasks(MainActivity.this, 1);
             whatsAppLine = whatsApp.isEmpty() ? "Yeni görev yok" : whatsApp.get(0);
         }
@@ -1516,16 +1516,16 @@ public final class MainActivity extends Activity {
         }
 
         String panelStatus() {
-            if (panelKind.equals("MAIL")) return "SON 24 SAAT • GÖNDERME YETKİSİ YOK";
+            if (panelKind.equals("MAIL")) return "GMAIL + THUNDERBIRD • READ ONLY";
             if (panelKind.equals("WHATSAPP")) return NodeStore.whatsAppAutomationEnabled(MainActivity.this)
-                    ? "ACTIONABLE ONLY • AUTO TASKS ON" : "AUTO TASKS OFF";
-            if (panelKind.equals("MUSIC")) return "ACTIVE MEDIA SESSION • AUXIO/YT MUSIC";
+                    ? "BALANCED DETECTOR • AUTO TASKS ON" : "AUTO TASKS OFF";
+            if (panelKind.equals("MUSIC")) return "ACTIVE SESSION • OLED LOCK PLAYER";
             if (panelKind.startsWith("POWER_")) return "TAILNET SSH • WAKE-ON-LAN";
             return rememberOpenCount + " AÇIK NOT • TAILNET ONLY";
         }
 
         String panelPrimaryLabel() {
-            if (panelKind.equals("MAIL")) return "GMAIL";
+            if (panelKind.equals("MAIL")) return "MAIL APPS";
             if (panelKind.equals("WHATSAPP")) return "WHATSAPP";
             if (panelKind.equals("MUSIC")) return "PLAY/PAUSE";
             if (panelKind.startsWith("POWER_")) return "WAKE";
@@ -1574,7 +1574,7 @@ public final class MainActivity extends Activity {
             RectF close = new RectF(left + buttonW * 2f + gap * 2f, actionTop, right, bottom);
             box(c, first, 12, panelHot, mintDim); type(6.5f, mint, true); center(c, primary, first.centerX(), first.centerY() + dp(2)); addHit(first, "PANEL_PRIMARY");
             box(c, second, 12, panel, line); type(6.5f, soft, true); center(c, secondary, second.centerX(), second.centerY() + dp(2)); addHit(second, "PANEL_SECONDARY");
-            String tertiary = panelKind.equals("MUSIC") ? "SOURCES" : "CLOSE";
+            String tertiary = panelKind.equals("MUSIC") ? "LOCK PLAYER" : "CLOSE";
             box(c, close, 12, panel, line); type(6.5f, soft, true); center(c, tertiary, close.centerX(), close.centerY() + dp(2));
             addHit(close, panelKind.equals("MUSIC") ? "PANEL_TERTIARY" : "PANEL_CLOSE");
         }
@@ -1591,8 +1591,8 @@ public final class MainActivity extends Activity {
             button(c, new RectF(left + dp(12), top + dp(91), left + side - dp(2), top + dp(144)), "OPEN", primary, "PRIVATE ACTION", true, "PANEL_PRIMARY");
             button(c, new RectF(left + dp(12), top + dp(152), left + side - dp(2), top + dp(205)), "TOOLS", panelSecondaryLabel(), "LOCAL SETTINGS", false, "PANEL_SECONDARY");
             button(c, new RectF(left + dp(12), top + dp(213), left + side - dp(2), bottom - dp(12)),
-                    panelKind.equals("MUSIC") ? "MUSIC" : "BACK", panelKind.equals("MUSIC") ? "SOURCES" : "CLOSE",
-                    panelKind.equals("MUSIC") ? "AUXIO / YT / SPOTIFY" : "RETURN HOME", false,
+                    panelKind.equals("MUSIC") ? "OLED" : "BACK", panelKind.equals("MUSIC") ? "LOCK PLAYER" : "CLOSE",
+                    panelKind.equals("MUSIC") ? "PLAYER / SOURCES" : "RETURN HOME", false,
                     panelKind.equals("MUSIC") ? "PANEL_TERTIARY" : "PANEL_CLOSE");
             float rowH = dp(44);
             c.save(); c.clipRect(listLeft, top + dp(12), right - dp(12), bottom - dp(12));
@@ -2302,7 +2302,11 @@ public final class MainActivity extends Activity {
         }
 
         void showWhatsAppPanel() {
-            List<String> rows = NodeStore.recentWhatsAppTasks(MainActivity.this, 8);
+            ArrayList<String> rows = new ArrayList<String>();
+            rows.add(NodeStore.whatsAppBridgeRow(MainActivity.this));
+            List<String> tasks = NodeStore.recentWhatsAppTasks(MainActivity.this, 7);
+            if (tasks.isEmpty()) rows.add("Henüz görev cümlesi yakalanmadı");
+            else rows.addAll(tasks);
             openInfoPanel("WHATSAPP", rows);
         }
 
@@ -2441,9 +2445,22 @@ public final class MainActivity extends Activity {
         }
 
         void showMailPanel() {
-            List<String> rows = NodeStore.recentMail(MainActivity.this, System.currentTimeMillis() - 24L * 60L * 60L * 1000L, 8);
+            ArrayList<String> rows = new ArrayList<String>(NodeStore.mailBridgeRows(MainActivity.this));
+            List<String> messages = NodeStore.recentMail(MainActivity.this,
+                    System.currentTimeMillis() - 24L * 60L * 60L * 1000L, 8);
+            if (messages.isEmpty()) rows.add("Son 24 saatte yeni mail yok • rahat ol");
+            else rows.addAll(messages);
             mailViewedAt = System.currentTimeMillis();
             openInfoPanel("MAIL", rows);
+        }
+
+        void showMailSources() {
+            final String[] sources = {"GMAIL // READ ONLY BRIDGE", "THUNDERBIRD // READ ONLY BRIDGE"};
+            new AlertDialog.Builder(MainActivity.this).setTitle("MAIL APPS // GÖNDERME YOK")
+                    .setItems(sources, (dialog, which) -> {
+                        if (which == 0) launchOrStore("com.google.android.gm");
+                        else launchOrStore("net.thunderbird.android");
+                    }).setNegativeButton("KAPAT", null).show();
         }
 
         void showMusicPanel() {
@@ -2505,13 +2522,29 @@ public final class MainActivity extends Activity {
         }
 
         void showMusicSources() {
-            final String[] sources = {"AUXIO // TAM OFFLINE", "YOUTUBE MUSIC // RESMÎ OFFLINE", "SPOTIFY // RESMÎ"};
-            new AlertDialog.Builder(MainActivity.this).setTitle("MUSIC // SOURCES")
+            boolean automatic = NodeStore.oledLockPlayerEnabled(MainActivity.this);
+            final String[] sources = {"DAAK OLED PLAYER // ŞİMDİ AÇ",
+                    "OTOMATİK KİLİT PLAYER // " + (automatic ? "AÇIK" : "KAPALI"),
+                    "AUXIO // TAM OFFLINE", "YOUTUBE MUSIC // RESMÎ OFFLINE", "SPOTIFY // RESMÎ"};
+            new AlertDialog.Builder(MainActivity.this).setTitle("MUSIC // OLED PLAYER")
                     .setItems(sources, (dialog, which) -> {
-                        if (which == 0) launchPackage("org.oxycblt.auxio");
-                        else if (which == 1) launchOrStore("com.google.android.apps.youtube.music");
+                        if (which == 0) openOledPlayer();
+                        else if (which == 1) {
+                            boolean enabled = NodeStore.toggleOledLockPlayer(MainActivity.this);
+                            toast("Otomatik OLED kilit player " + (enabled ? "açıldı" : "kapatıldı"));
+                        } else if (which == 2) launchPackage("org.oxycblt.auxio");
+                        else if (which == 3) launchOrStore("com.google.android.apps.youtube.music");
                         else launchOrStore("com.spotify.music");
                     }).setNegativeButton("KAPAT", null).show();
+        }
+
+        void openOledPlayer() {
+            if (activeMediaController() == null) {
+                toast("Önce Auxio veya başka bir müzik kaynağında oynatmayı başlat");
+                launchPackage("org.oxycblt.auxio");
+                return;
+            }
+            startActivity(new Intent(MainActivity.this, OledPlayerActivity.class));
         }
 
         void launchOrStore(String packageName) {
@@ -2626,18 +2659,11 @@ public final class MainActivity extends Activity {
         }
 
         void closeInfoPanel() {
-            if (panelKind.equals("MAIL") && mailViewedAt > 0L) {
-                final long cutoff = mailViewedAt;
-                handler.postDelayed(() -> {
-                    NodeStore.clearMailBefore(MainActivity.this, cutoff);
-                    updateMailLine(); invalidate();
-                }, 10L * 60L * 1000L);
-            }
             panelKind = ""; panelItems.clear(); panelScroll = 0; mailViewedAt = 0L;
         }
 
         void panelPrimary() {
-            if (panelKind.equals("MAIL")) launchOrStore("com.google.android.gm");
+            if (panelKind.equals("MAIL")) showMailSources();
             else if (panelKind.equals("WHATSAPP")) launchPackage("com.whatsapp");
             else if (panelKind.equals("MUSIC")) toggleMediaPlayback();
             else if (panelKind.equals("POWER_LOLILE")) guarded(() -> runPower("lolile-wake"));
