@@ -42,7 +42,8 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - Three normalized, embedded notification tones with immediate preview and a versioned high-importance Android channel
 - Kurek files can stream through a localhost-only, three-minute encrypted SMB3 preview rendered inline by Fennec/Firefox without a persistent phone copy, or download explicitly for offline use
 - `Kitap Meraklısına` keeps a resumable, non-deleting 2.79 GiB offline mirror under `Documents/DAAK-Vault`; Android JobScheduler runs lightweight six-hour checks only on unmetered Wi-Fi while charging, plus a weekly integrity reconciliation
-- Book's Story is integrated into the Kurek/Books panel with a Turkish, true-black OLED reading profile and direct access to the local `Kitap Meraklısına` library; EPUB, PDF, FB2, TXT, HTML and Markdown stay on-device
+- Book's Story is integrated into the Kurek/Books panel with a Turkish, true-black OLED reading profile and persisted access to the local `Kitap Meraklısına` library; EPUB and PDF were opened from the real offline mirror on the SM-G965F (PDF text extraction can take roughly 30–60 seconds on first open)
+- The music source panel sends a selected local audio file to the Mac over a fully free/open-source AirPlay 1 route: pyatv on the phone and Shairport Sync on the Mac; the sender exits when playback finishes
 - Scrollable Kurek folders with path-stable live refreshes
 - One-tap Fossify Clock alarms and battery-light Plees sleep tracking from the control centre
 - Optional daily update checks with a pinned manifest and mandatory APK SHA-256 verification
@@ -81,6 +82,8 @@ Mac-to-phone control uses Android's authorized ADB key plus the Tailnet-only fir
 
 Official YouTube Music and Spotify offline downloads remain inside their own applications. They are not copied into Auxio because those private app stores are encrypted and service-controlled; DAAK only provides shared playback controls and safe source switching.
 
+The free AirPlay bridge is intentionally local-network-only. `companion/termux/daak-airplay` discovers the DAAK Shairport receiver over mDNS and streams only the audio file explicitly selected in DAAK's music panel. `companion/macos/com.daak.shairport-sync.plist` keeps the receiver available after Mac login; no subscription, account or cloud relay is involved. The Mac's built-in AirPlay Receiver must stay disabled because both receivers use the classic RAOP port 5000.
+
 The Android package name remains `com.firat.node` so upgrades preserve launcher state, permissions and private preferences. The old `/sdcard/Download/firat-node/config.properties` path remains a read-only compatibility fallback.
 
 ## Build
@@ -111,6 +114,8 @@ Android additionally enforces that an upgrade carries the same signing certifica
 - [Plees Tracker](https://gitlab.com/vmiklos/plees-tracker)
 - [Material Files](https://github.com/zhanghai/MaterialFiles)
 - [Book's Story](https://github.com/Acclorite/book-story)
+- [pyatv](https://github.com/postlund/pyatv)
+- [Shairport Sync](https://github.com/mikebrady/shairport-sync)
 - [daakREMEMBER](https://github.com/benfirad/daakREMEMBER)
 - [Obsidian](https://github.com/obsidianmd/obsidian-releases)
 - [FUTO Voice Input](https://github.com/futo-org/voice-input)

@@ -1,7 +1,7 @@
 {
-  "versionCode": 25,
-  "versionName": "6.9.3",
-  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.9.3/DAAK-NODE.apk",
-  "sha256": "250c03e718fdec0f1a828fe44bede041697398ab5906fbe7b1d10f973ac31c93",
-  "notes": "Gmail ve Thunderbird bildirim köprüleri modern mesaj biçimleriyle onarıldı; WhatsApp görev yakalama filtresi, tekrar ve sistem gürültüsü temizliği geliştirildi. Aktif müzikte güvenli Android kilidini koruyan tam siyah DAAK OLED Player eklendi."
+  "versionCode": 26,
+  "versionName": "6.9.4",
+  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.9.4/DAAK-NODE.apk",
+  "sha256": "e5bd12c8a55c5b44f7cb91057bbd4714b9e9e9b2657ddced5a41ecd3b8c09b1e",
+  "notes": "Book's Story gerçek Kitap Meraklısına yedeğinde EPUB/PDF ile doğrulandı ve PDF ilk açılış gecikmesi arayüzde açıklandı. DAAK müzik paneline pyatv + Shairport Sync tabanlı, ücretsiz ve açık kaynak yerel AirPlay dosya aktarımı eklendi."
 }

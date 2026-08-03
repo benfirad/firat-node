@@ -51,6 +51,7 @@ import android.provider.Settings;
 import android.provider.CalendarContract;
 import android.provider.DocumentsContract;
 import android.provider.MediaStore;
+import android.provider.OpenableColumns;
 import android.net.Uri;
 import android.util.Base64;
 import android.util.Log;
@@ -98,12 +99,14 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public final class MainActivity extends Activity {
-    private static final String BUILD_VERSION = "6.9.3";
+    private static final String BUILD_VERSION = "6.9.4";
     private static final String BOOK_READER_PACKAGE = "ua.acclorite.book_story";
     private static final int TERMUX_PERMISSION_REQUEST = 73;
     private static final int CALENDAR_PERMISSION_REQUEST = 74;
     private static final int LOCATION_PERMISSION_REQUEST = 75;
     private static final int DICTATION_REQUEST = 76;
+    private static final int AIRPLAY_AUDIO_REQUEST = 77;
+    private static final int STORAGE_PERMISSION_REQUEST = 78;
     private NodeView nodeView;
     private Runnable pendingProtectedAction;
     private CancellationSignal biometricCancellation;
@@ -235,9 +238,106 @@ public final class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == AIRPLAY_AUDIO_REQUEST) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                queueAirplayAudio(data.getData());
+            }
+            return;
+        }
         if (requestCode != DICTATION_REQUEST || resultCode != RESULT_OK || data == null || nodeView == null) return;
         ArrayList<String> results = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
         if (results != null && !results.isEmpty()) nodeView.showDictationResult(results.get(0));
+    }
+
+    private void startAirplayPicker() {
+        if (getPackageManager().getLaunchIntentForPackage("com.termux") == null) {
+            toast("DAAK AirPlay için Termux kurulumu eksik");
+            return;
+        }
+        if (checkSelfPermission("android.permission.WRITE_EXTERNAL_STORAGE") != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{"android.permission.READ_EXTERNAL_STORAGE",
+                    "android.permission.WRITE_EXTERNAL_STORAGE"}, STORAGE_PERMISSION_REQUEST);
+            toast("Bir kez dosya erişimine izin ver, sonra AirPlay'e tekrar dokun");
+            return;
+        }
+        if (checkSelfPermission("com.termux.permission.RUN_COMMAND") != PackageManager.PERMISSION_GRANTED) {
+            ensureTermuxPermission();
+            toast("Bir kez Termux komut iznine izin ver, sonra AirPlay'e tekrar dokun");
+            return;
+        }
+        try {
+            Intent picker = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            picker.addCategory(Intent.CATEGORY_OPENABLE);
+            picker.setType("audio/*");
+            startActivityForResult(Intent.createChooser(picker,
+                    "DAAK AIRPLAY // MÜZİK SEÇ"), AIRPLAY_AUDIO_REQUEST);
+        } catch (RuntimeException error) {
+            toast("Ses dosyası seçici açılamadı");
+        }
+    }
+
+    private void queueAirplayAudio(final Uri uri) {
+        if (nodeView != null) {
+            nodeView.message = "AIRPLAY // DOSYA HAZIRLANIYOR";
+            nodeView.invalidate();
+        }
+        new Thread(() -> {
+            String displayName = "müzik";
+            Cursor cursor = null;
+            try {
+                cursor = getContentResolver().query(uri,
+                        new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null);
+                if (cursor != null && cursor.moveToFirst() && !cursor.isNull(0)) {
+                    displayName = cursor.getString(0);
+                }
+            } catch (RuntimeException ignored) { }
+            finally { if (cursor != null) cursor.close(); }
+
+            String extension = "audio";
+            int dot = displayName.lastIndexOf('.');
+            if (dot >= 0 && dot + 1 < displayName.length()) {
+                String candidate = displayName.substring(dot + 1).toLowerCase(Locale.US);
+                if (candidate.matches("[a-z0-9]{1,5}")) extension = candidate;
+            }
+            File directory = new File("/sdcard/Download/DAAK-AirPlay-Queue");
+            File target = new File(directory, "current." + extension);
+            try {
+                if (!directory.exists() && !directory.mkdirs()) throw new IllegalStateException("queue directory");
+                File[] old = directory.listFiles();
+                if (old != null) for (File file : old) {
+                    if (file.getName().startsWith("current.") && !file.equals(target)) file.delete();
+                }
+                InputStream input = getContentResolver().openInputStream(uri);
+                if (input == null) throw new IllegalStateException("audio input");
+                FileOutputStream output = new FileOutputStream(target, false);
+                byte[] buffer = new byte[64 * 1024];
+                int count;
+                while ((count = input.read(buffer)) > 0) output.write(buffer, 0, count);
+                input.close(); output.flush(); output.getFD().sync(); output.close();
+                final String readyName = displayName;
+                runOnUiThread(() -> {
+                    runTermuxRaw("exec ~/.shortcuts/daak-airplay " + target.getAbsolutePath(), true, null);
+                    if (nodeView != null) {
+                        nodeView.message = "AIRPLAY → MAC // " + trimLabel(readyName, 28);
+                        nodeView.invalidate();
+                    }
+                    toast("Mac'e açık kaynak AirPlay aktarımı başladı");
+                });
+            } catch (Exception error) {
+                runOnUiThread(() -> {
+                    if (nodeView != null) {
+                        nodeView.message = "AIRPLAY // DOSYA HATASI";
+                        nodeView.invalidate();
+                    }
+                    toast("Müzik AirPlay kuyruğuna kopyalanamadı");
+                });
+            }
+        }, "daak-airplay-queue").start();
+    }
+
+    private String trimLabel(String value, int maximum) {
+        String clean = value == null ? "müzik" : value.replace('\n', ' ').trim();
+        return clean.length() <= maximum ? clean : clean.substring(0, Math.max(1, maximum - 1)) + "…";
     }
 
     private void startDictation() {
@@ -2144,7 +2244,8 @@ public final class MainActivity extends Activity {
             }
             AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
                     .setTitle("KİTAP MERAKLISINA // OLED")
-                    .setMessage("Book's Story • tam siyah okuma profili\n\n" + detail)
+                    .setMessage("Book's Story • tam siyah okuma profili\n" +
+                            "EPUB hemen açılır • PDF ilk metin çıkarımı 30–60 sn sürebilir\n\n" + detail)
                     .setPositiveButton("OKUYUCU", (d, which) -> openBookReader())
                     .setNeutralButton("YEDEKLE", (d, which) -> {
                         diskMessage = "Book backup started • Wi-Fi / SMB3";
@@ -2457,7 +2558,7 @@ public final class MainActivity extends Activity {
         void showMailSources() {
             final String[] sources = {"GMAIL // READ ONLY BRIDGE", "THUNDERBIRD // READ ONLY BRIDGE"};
             new AlertDialog.Builder(MainActivity.this).setTitle("MAIL APPS // GÖNDERME YOK")
-                    .setItems(sources, (dialog, which) -> {
+                    .setItems(sources, (choiceDialog, which) -> {
                         if (which == 0) launchOrStore("com.google.android.gm");
                         else launchOrStore("net.thunderbird.android");
                     }).setNegativeButton("KAPAT", null).show();
@@ -2468,6 +2569,9 @@ public final class MainActivity extends Activity {
             updateMediaStatus();
             rows.add(mediaTitle);
             rows.add(mediaSource);
+            rows.add(getPackageManager().getLaunchIntentForPackage("com.termux") == null
+                    ? "AIRPLAY → MAC • FREE BRIDGE KURULUMU EKSİK"
+                    : "AIRPLAY → MAC • FREE RAOP READY");
             rows.add("AUXIO • USER FILES • FULL OFFLINE");
             rows.add("YT MUSIC DOWNLOADS • STAY INSIDE OFFICIAL APP");
             openInfoPanel("MUSIC", rows);
@@ -2525,17 +2629,20 @@ public final class MainActivity extends Activity {
             boolean automatic = NodeStore.oledLockPlayerEnabled(MainActivity.this);
             final String[] sources = {"DAAK OLED PLAYER // ŞİMDİ AÇ",
                     "OTOMATİK KİLİT PLAYER // " + (automatic ? "AÇIK" : "KAPALI"),
-                    "AUXIO // TAM OFFLINE", "YOUTUBE MUSIC // RESMÎ OFFLINE", "SPOTIFY // RESMÎ"};
-            new AlertDialog.Builder(MainActivity.this).setTitle("MUSIC // OLED PLAYER")
-                    .setItems(sources, (dialog, which) -> {
+                    "AIRPLAY → MAC // DOSYA SEÇ", "AUXIO // TAM OFFLINE",
+                    "YOUTUBE MUSIC // RESMÎ OFFLINE", "SPOTIFY // RESMÎ"};
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this).setTitle("MUSIC // OLED PLAYER")
+                    .setItems(sources, (choiceDialog, which) -> {
                         if (which == 0) openOledPlayer();
                         else if (which == 1) {
                             boolean enabled = NodeStore.toggleOledLockPlayer(MainActivity.this);
                             toast("Otomatik OLED kilit player " + (enabled ? "açıldı" : "kapatıldı"));
-                        } else if (which == 2) launchPackage("org.oxycblt.auxio");
-                        else if (which == 3) launchOrStore("com.google.android.apps.youtube.music");
+                        } else if (which == 2) startAirplayPicker();
+                        else if (which == 3) launchPackage("org.oxycblt.auxio");
+                        else if (which == 4) launchOrStore("com.google.android.apps.youtube.music");
                         else launchOrStore("com.spotify.music");
-                    }).setNegativeButton("KAPAT", null).show();
+                    }).setNegativeButton("KAPAT", null).create();
+            showDaakDialog(dialog);
         }
 
         void openOledPlayer() {

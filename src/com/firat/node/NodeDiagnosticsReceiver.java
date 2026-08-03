@@ -18,6 +18,7 @@ public final class NodeDiagnosticsReceiver extends BroadcastReceiver {
     static final String ACTION = "com.firat.node.DIAGNOSTIC_NOTIFICATION_CAPTURE";
     static final String ACTION_MEDIA_START = "com.firat.node.DIAGNOSTIC_MEDIA_START";
     static final String ACTION_MEDIA_STOP = "com.firat.node.DIAGNOSTIC_MEDIA_STOP";
+    static final String ACTION_AIRPLAY_SEND = "com.firat.node.DIAGNOSTIC_AIRPLAY_SEND";
     private static MediaSession diagnosticSession;
 
     @Override public void onReceive(Context context, Intent intent) {
@@ -33,6 +34,27 @@ public final class NodeDiagnosticsReceiver extends BroadcastReceiver {
         if (ACTION_MEDIA_STOP.equals(intent.getAction())) {
             if (diagnosticSession != null) { diagnosticSession.release(); diagnosticSession = null; }
             setResultData("PASS diagnostic_media=stopped"); return;
+        }
+        if (ACTION_AIRPLAY_SEND.equals(intent.getAction())) {
+            String path = intent.getStringExtra("path");
+            String queuePrefix = "/sdcard/Download/DAAK-AirPlay-Queue/";
+            if (path == null || !path.startsWith(queuePrefix) || path.contains("..")) {
+                setResultData("FAIL invalid_airplay_path"); return;
+            }
+            Intent command = new Intent("com.termux.RUN_COMMAND");
+            command.setClassName("com.termux", "com.termux.app.RunCommandService");
+            command.putExtra("com.termux.RUN_COMMAND_PATH",
+                    "/data/data/com.termux/files/home/.shortcuts/daak-airplay");
+            command.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", new String[]{path});
+            command.putExtra("com.termux.RUN_COMMAND_WORKDIR", "/data/data/com.termux/files/home");
+            command.putExtra("com.termux.RUN_COMMAND_BACKGROUND", true);
+            try {
+                context.startService(command);
+                setResultData("PASS diagnostic_airplay=launched");
+            } catch (RuntimeException error) {
+                setResultData("FAIL diagnostic_airplay=" + error.getClass().getSimpleName());
+            }
+            return;
         }
         if (!ACTION.equals(intent.getAction())) return;
         long now = System.currentTimeMillis();

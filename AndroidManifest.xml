@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.firat.node"
-    android:versionCode="25"
-    android:versionName="6.9.3">
+    android:versionCode="26"
+    android:versionName="6.9.4">
 
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="29" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -78,6 +78,7 @@
                 <action android:name="com.firat.node.DIAGNOSTIC_NOTIFICATION_CAPTURE" />
                 <action android:name="com.firat.node.DIAGNOSTIC_MEDIA_START" />
                 <action android:name="com.firat.node.DIAGNOSTIC_MEDIA_STOP" />
+                <action android:name="com.firat.node.DIAGNOSTIC_AIRPLAY_SEND" />
             </intent-filter>
         </receiver>
         <receiver android:name=".NodeBootReceiver" android:exported="false">
