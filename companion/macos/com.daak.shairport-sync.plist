@@ -8,7 +8,7 @@
     <array>
         <string>/opt/homebrew/opt/shairport-sync/bin/shairport-sync</string>
         <string>-c</string>
-        <string>/Users/kai/Documents/proje telefonu/firat-node-app/companion/macos/shairport-sync-daak.conf</string>
+        <string>/Users/kai/Library/Application Support/DAAK/shairport-sync-daak.conf</string>
         <string>--</string>
         <string>-d</string>
         <string>macosx</string>
