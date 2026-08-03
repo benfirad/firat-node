@@ -1,4 +1,4 @@
-package com.firat.node;
+package com.daak.node;
 
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
@@ -99,7 +99,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public final class MainActivity extends Activity {
-    private static final String BUILD_VERSION = "6.9.7";
+    private static final String BUILD_VERSION = "7.0.0";
     private static final String BOOK_READER_PACKAGE = "com.foobnix.pro.pdf.reader";
     private static final int TERMUX_PERMISSION_REQUEST = 73;
     private static final int CALENDAR_PERMISSION_REQUEST = 74;
@@ -560,6 +560,7 @@ public final class MainActivity extends Activity {
         final List<Boolean> rememberDone = new ArrayList<Boolean>();
         final List<String> rememberFolders = new ArrayList<String>();
         final List<AgendaEntry> holidayEntries = new ArrayList<AgendaEntry>();
+        final boolean showcaseMode;
         String diskPath = DISK_ROOT;
         int mode = HOME;
         String query = "";
@@ -627,6 +628,7 @@ public final class MainActivity extends Activity {
         NodeView(Context context) {
             super(context);
             contentScroller = new OverScroller(context);
+            showcaseMode = "true".equalsIgnoreCase(nodeConfig("showcase_mode", "false"));
             setBackgroundColor(Color.BLACK);
             holidayCountry = getSharedPreferences(NodeStore.PREFS, 0).getString("holiday_country", "");
             reloadApps();
@@ -634,6 +636,13 @@ public final class MainActivity extends Activity {
             refreshHolidays(false);
             refreshWeather(false);
         }
+
+        String displayMesh() { return showcaseMode ? "TAILNET PRIVATE" : meshIp; }
+        String displayMail() { return showcaseMode ? "GMAIL + THUNDERBIRD READY" : mailLine; }
+        String displayWhatsApp() { return showcaseMode ? "ACTION ROUTER READY" : whatsAppLine; }
+        String displayRemember() { return showcaseMode ? "TAILSYNC • PRIVATE NOTES" : rememberLine; }
+        String displayWeather() { return showcaseMode ? "LOCAL WEATHER • 21°C" : weather; }
+        String displayAgenda() { return showcaseMode ? "TODAY • PRIVATE AGENDA READY" : agendaOne; }
 
         void startUpdates() {
             if (destroyed) return;
@@ -1563,7 +1572,7 @@ public final class MainActivity extends Activity {
             box(c, terminal, 16, panel, line);
             type(7, mintDim, true); c.drawText("// LIVE CONTROL PLANE", left + dp(14), dp(86), paint);
             type(9, mint, false);
-            c.drawText("MESH  " + meshIp, left + dp(14), dp(108), paint);
+            c.drawText("MESH  " + displayMesh(), left + dp(14), dp(108), paint);
             c.drawText("MAC " + macState + "  •  LOLILE " + diskState, left + dp(14), dp(129), paint);
             c.drawText("SSHD " + sshState + "  •  ROOT " + (rooted ? "YES" : "NO"), left + dp(14), dp(150), paint);
             type(6.5f, soft, true); c.drawText("> " + trimText(message, 43), left + dp(14), dp(169), paint);
@@ -1578,23 +1587,23 @@ public final class MainActivity extends Activity {
             type(7, mintDim, true); c.drawText("// INTELLIGENCE", left, dp(337), paint);
             RectF mail = new RectF(left, dp(347), left + half, dp(397));
             box(c, mail, 12, panel, line); type(7, mint, true); c.drawText("MAIL // READ ONLY", mail.left + dp(10), dp(365), paint);
-            type(6.1f, soft, false); c.drawText(trimText(mailLine, 25), mail.left + dp(10), dp(386), paint); addHit(mail, "MAIL");
+            type(6.1f, soft, false); c.drawText(trimText(displayMail(), 25), mail.left + dp(10), dp(386), paint); addHit(mail, "MAIL");
             RectF whatsApp = new RectF(left + half + gap, dp(347), right, dp(397));
             box(c, whatsApp, 12, panel, line); type(7, mint, true); c.drawText("WHATSAPP // TASKS", whatsApp.left + dp(10), dp(365), paint);
-            type(6.1f, soft, false); c.drawText(trimText(whatsAppLine, 24), whatsApp.left + dp(10), dp(386), paint); addHit(whatsApp, "WHATSAPP");
+            type(6.1f, soft, false); c.drawText(trimText(displayWhatsApp(), 24), whatsApp.left + dp(10), dp(386), paint); addHit(whatsApp, "WHATSAPP");
 
             RectF remember = new RectF(left, dp(405), left + half, dp(455));
             box(c, remember, 12, panelHot, mintDim); type(7, mint, true); c.drawText("daakREMEMBER", remember.left + dp(10), dp(423), paint);
-            type(6.1f, soft, false); c.drawText(trimText(rememberLine, 25), remember.left + dp(10), dp(444), paint); addHit(remember, "REMEMBER");
+            type(6.1f, soft, false); c.drawText(trimText(displayRemember(), 25), remember.left + dp(10), dp(444), paint); addHit(remember, "REMEMBER");
             RectF climate = new RectF(left + half + gap, dp(405), right, dp(455));
             box(c, climate, 12, panel, line); type(7, mint, true); c.drawText("WEATHER", climate.left + dp(10), dp(423), paint);
-            type(6.1f, soft, false); c.drawText(trimText(weather, 24), climate.left + dp(10), dp(444), paint); addHit(climate, "WEATHER");
+            type(6.1f, soft, false); c.drawText(trimText(displayWeather(), 24), climate.left + dp(10), dp(444), paint); addHit(climate, "WEATHER");
 
             RectF agenda = new RectF(left, dp(463), right, dp(513));
             box(c, agenda, 12, panel, line); type(7, mint, true);
             c.drawText(holidayCountry.length() == 0 ? "GOOGLE CALENDAR // NEXT" : "CALENDAR + " + holidayCountry + " SPECIAL DAYS",
                     agenda.left + dp(10), dp(481), paint);
-            type(6.2f, soft, false); c.drawText(trimText(agendaOne, 49), agenda.left + dp(10), dp(502), paint); addHit(agenda, "CALENDAR");
+            type(6.2f, soft, false); c.drawText(trimText(displayAgenda(), 49), agenda.left + dp(10), dp(502), paint); addHit(agenda, "CALENDAR");
 
             type(7, mintDim, true); c.drawText("// PINNED // 2 × 3", left, dp(535), paint);
             String[] names = {pinnedName(0), pinnedName(1), pinnedName(2), pinnedName(3), "REMEM", "RM-OS"};
@@ -1618,7 +1627,7 @@ public final class MainActivity extends Activity {
 
             RectF terminal = new RectF(x1, top, x1 + col, dp(191));
             box(c, terminal, 14, panel, line); type(7, mintDim, true); c.drawText("// LIVE CONTROL", x1 + dp(12), top + dp(20), paint);
-            type(8, mint, false); c.drawText("MESH  " + meshIp, x1 + dp(12), top + dp(45), paint);
+            type(8, mint, false); c.drawText("MESH  " + displayMesh(), x1 + dp(12), top + dp(45), paint);
             c.drawText("MAC " + macState + " • LOLILE " + diskState, x1 + dp(12), top + dp(67), paint);
             c.drawText("SSHD " + sshState + " • ROOT " + (rooted ? "YES" : "NO"), x1 + dp(12), top + dp(89), paint);
             type(6.2f, soft, true); c.drawText("> " + trimText(message, 34), x1 + dp(12), top + dp(112), paint);
@@ -1631,7 +1640,7 @@ public final class MainActivity extends Activity {
 
             RectF remember = new RectF(x2, top, x2 + col, dp(174));
             box(c, remember, 14, panelHot, mintDim); type(8, mint, true); c.drawText("daakREMEMBER // TAILSYNC", x2 + dp(12), top + dp(22), paint);
-            type(7, soft, false); c.drawText(trimText(rememberLine, 34), x2 + dp(12), top + dp(48), paint);
+            type(7, soft, false); c.drawText(trimText(displayRemember(), 34), x2 + dp(12), top + dp(48), paint);
             type(6, ghost, false); c.drawText("TAP → VIEW / CAPTURE • 45831", x2 + dp(12), top + dp(73), paint); addHit(remember, "REMEMBER");
             RectF obsidian = new RectF(x2, dp(182), x2 + col, dp(239));
             button(c, obsidian, "MD", "RM-OS / OBSIDIAN", "DAAK VAULT • SYNCED", true, "RMOS");
@@ -1645,16 +1654,16 @@ public final class MainActivity extends Activity {
 
             RectF mail = new RectF(x3, top, x3 + col, dp(120));
             box(c, mail, 12, panel, line); type(7, mint, true); c.drawText("MAIL // ALL ACCOUNTS", x3 + dp(10), top + dp(20), paint);
-            type(6.3f, soft, false); c.drawText(trimText(mailLine, 35), x3 + dp(10), top + dp(42), paint); addHit(mail, "MAIL");
+            type(6.3f, soft, false); c.drawText(trimText(displayMail(), 35), x3 + dp(10), top + dp(42), paint); addHit(mail, "MAIL");
             RectF whatsApp = new RectF(x3, dp(128), x3 + col, dp(181));
             box(c, whatsApp, 12, panel, line); type(7, mint, true); c.drawText("WHATSAPP // TASKS", x3 + dp(10), dp(148), paint);
-            type(6.3f, soft, false); c.drawText(trimText(whatsAppLine, 35), x3 + dp(10), dp(170), paint); addHit(whatsApp, "WHATSAPP");
+            type(6.3f, soft, false); c.drawText(trimText(displayWhatsApp(), 35), x3 + dp(10), dp(170), paint); addHit(whatsApp, "WHATSAPP");
             RectF climate = new RectF(x3, dp(189), x3 + col, dp(242));
             box(c, climate, 12, panel, line); type(7, mint, true); c.drawText("WEATHER", x3 + dp(10), dp(208), paint);
-            type(6.3f, soft, false); c.drawText(trimText(weather, 35), x3 + dp(10), dp(230), paint); addHit(climate, "WEATHER");
+            type(6.3f, soft, false); c.drawText(trimText(displayWeather(), 35), x3 + dp(10), dp(230), paint); addHit(climate, "WEATHER");
             RectF agenda = new RectF(x3, dp(250), x3 + col, bottom);
             box(c, agenda, 12, panel, line); type(7, mint, true); c.drawText("AGENDA // NEXT", x3 + dp(10), dp(269), paint);
-            type(6.1f, soft, false); c.drawText(trimText(agendaOne, 35), x3 + dp(10), dp(290), paint); addHit(agenda, "CALENDAR");
+            type(6.1f, soft, false); c.drawText(trimText(displayAgenda(), 35), x3 + dp(10), dp(290), paint); addHit(agenda, "CALENDAR");
         }
 
         void drawApps(Canvas c) {
@@ -1840,7 +1849,9 @@ public final class MainActivity extends Activity {
             float left = dp(16), right = getWidth() - dp(16), gap = dp(8);
             type(17, mint, true); c.drawText("REMOTE // TOUCH DESKTOP", left, dp(88), paint);
             type(7, soft, false); c.drawText("CHROME REMOTE DESKTOP • GOOGLE ACCOUNT", left, dp(107), paint);
-            String[] names = {"LOLILE WINDOWS", "MY MAC", "BEDIRHAN MAC", "BEDIRHAN WINDOWS"};
+            String[] names = showcaseMode
+                    ? new String[]{"WORKSTATION", "MY MAC", "TRUSTED MAC", "TRUSTED WINDOWS"}
+                    : new String[]{"LOLILE WINDOWS", "MY MAC", "BEDIRHAN MAC", "BEDIRHAN WINDOWS"};
             float half = (right - left - gap) / 2f, top = dp(124), h = dp(92);
             for (int i = 0; i < names.length; i++) {
                 int row = i / 2, col = i % 2;
@@ -1859,7 +1870,9 @@ public final class MainActivity extends Activity {
 
         void drawRemoteLandscape(Canvas c) {
             float left = dp(16), right = getWidth() - dp(16), top = dp(67), bottom = getHeight() - dp(58), gap = dp(8);
-            String[] names = {"LOLILE WINDOWS", "MY MAC", "BEDIRHAN MAC", "BEDIRHAN WINDOWS"};
+            String[] names = showcaseMode
+                    ? new String[]{"WORKSTATION", "MY MAC", "TRUSTED MAC", "TRUSTED WINDOWS"}
+                    : new String[]{"LOLILE WINDOWS", "MY MAC", "BEDIRHAN MAC", "BEDIRHAN WINDOWS"};
             float side = dp(180), listLeft = left + side + gap;
             RectF configure = new RectF(left, top, left + side, top + (bottom - top) * 0.48f);
             button(c, configure, "GOOGLE", "REMOTE HUB", "SIGN IN / DEVICE LIST", true, "REMOTE_CONFIG");
@@ -2017,7 +2030,7 @@ public final class MainActivity extends Activity {
             button(c, new RectF(left, y, left + half, y + dp(58)), "SET", "BIOMETRICS", "PIN / IRIS", false, "SET:SECURITY");
             button(c, new RectF(left + half + gap, y, right, y + dp(58)), "SET", "ANDROID", "SYSTEM SETTINGS", false, "SET:SYSTEM");
             y += dp(66);
-            button(c, new RectF(left, y, left + half, y + dp(58)), "NET", "TAILSCALE", meshIp, false, "PKG:com.tailscale.ipn");
+            button(c, new RectF(left, y, left + half, y + dp(58)), "NET", "TAILSCALE", displayMesh(), false, "PKG:com.tailscale.ipn");
             button(c, new RectF(left + half + gap, y, right, y + dp(58)), "KEY", "KEY MAPPER", "BIXBY", false, "PKG:io.github.sds100.keymapper");
         }
 

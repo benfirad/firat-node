@@ -42,7 +42,7 @@ fi
 tail_ip=$(ip -4 -o addr show 2>/dev/null | awk '$2 ~ /^tun/ && $4 ~ /^100\./ {sub(/\/.*/, "", $4); print $4; exit}')
 if [ -n "$tail_ip" ]; then report "TAILNET OK $tail_ip"; else report "TAILNET FAIL"; fi
 
-if timeout 12 ssh -o BatchMode=yes -o ConnectTimeout=7 firat-mac \
+if timeout 12 ssh -o BatchMode=yes -o ConnectTimeout=7 daak-mac \
         'test -x "/Users/kai/Library/Application Support/DAAK/daak-codex-launch.sh"' 2>/dev/null; then
     report "CODEX SSH OK"
 else

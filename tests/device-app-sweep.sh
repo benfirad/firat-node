@@ -81,9 +81,9 @@ while IFS= read -r component <&3; do
     sleep 1
     home=$($adb_bin -s "$device" shell dumpsys activity activities 2>/dev/null |
         sed -n 's/.*mResumedActivity:.* u[0-9][0-9]* \([^ /}]*\).*/\1/p' | head -n 1 | tr -d '\r')
-    if [ "$home" != com.firat.node ]; then
+    if [ "$home" != com.daak.node ]; then
         printf 'HOME_RECOVERY %s\n' "${home:-none}"
-        $adb_bin -s "$device" shell am start -n com.firat.node/.MainActivity >/dev/null 2>&1 || true
+        $adb_bin -s "$device" shell am start -n com.daak.node/.MainActivity >/dev/null 2>&1 || true
         sleep 1
     fi
     case "$package" in

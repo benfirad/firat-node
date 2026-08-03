@@ -1,6 +1,41 @@
 # DAAK NODE
 
+<p align="center">
+  <img src="docs/hero.svg" width="100%" alt="DAAK NODE — OLED-black Android control plane">
+</p>
+
+<p align="center">
+  <a href="https://github.com/benfirad/daak-node/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/benfirad/daak-node?style=flat-square&color=80609a"></a>
+  <img alt="Android 10" src="https://img.shields.io/badge/Android-10-c9a7dc?style=flat-square&logo=android&logoColor=000000">
+  <img alt="Samsung Galaxy S9+" src="https://img.shields.io/badge/device-Galaxy_S9%2B-80609a?style=flat-square">
+  <img alt="License" src="https://img.shields.io/github/license/benfirad/daak-node?style=flat-square&color=c9a7dc">
+</p>
+
 DAAK NODE is a true-black, Linux-flavoured Android launcher and private control plane. It was built for a rooted Samsung Galaxy S9+ running Android 10, while keeping Android as the hardware-compatibility layer for the camera, modem, fingerprint sensor and iris scanner.
+
+## The interface
+
+These are real screenshots from the SM-G965F. Public showcase mode replaces private Tailnet addresses, mail subjects, WhatsApp tasks, notes, weather location and agenda entries with neutral demo copy.
+
+<p align="center">
+  <img src="docs/screenshots/home.png" width="24%" alt="DAAK NODE home">
+  <img src="docs/screenshots/apps.png" width="24%" alt="DAAK NODE text app drawer">
+  <img src="docs/screenshots/remote.png" width="24%" alt="DAAK NODE remote control panel">
+  <img src="docs/screenshots/help.png" width="24%" alt="DAAK NODE help and recovery">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/landscape.png" width="100%" alt="DAAK NODE landscape dashboard">
+</p>
+
+| Surface | What it does |
+| --- | --- |
+| **HOME** | Live Tailnet, Codex, Kurek, mail, tasks, notes, weather and agenda status |
+| **APPS** | Searchable, text-first launcher without icon-grid clutter |
+| **CODEX** | Biometric-gated access to the real Codex CLI running on the Mac |
+| **DISK** | SMB3 browse, private inline preview and explicit offline download |
+| **REMOTE** | Direct Chrome Remote Desktop routes plus guarded wake/shutdown controls |
+| **HELP** | On-device explanations and recovery shortcuts for every critical subsystem |
 
 ## Highlights
 
@@ -86,7 +121,7 @@ Official YouTube Music and Spotify offline downloads remain inside their own app
 
 The free AirPlay bridge is intentionally local-network-only. `companion/termux/daak-airplay` discovers the DAAK Shairport receiver over mDNS and streams only the audio file explicitly selected in DAAK's music panel. `companion/macos/com.daak.shairport-sync.plist` keeps the receiver available after Mac login; no subscription, account or cloud relay is involved. The Mac's built-in AirPlay Receiver must stay disabled because both receivers use the classic RAOP port 5000.
 
-The Android package name remains `com.firat.node` so upgrades preserve launcher state, permissions and private preferences. The old `/sdcard/Download/firat-node/config.properties` path remains a read-only compatibility fallback.
+DAAK NODE 7 uses the canonical Android package `com.daak.node`. Devices upgrading from the pre-7 `com.firat.node` builds require the included root-assisted one-time migration because Android treats a package-name change as a new application. Runtime configuration lives only at `/sdcard/Download/daak-node/config.properties`.
 
 ## Build
 
@@ -95,6 +130,14 @@ Requirements: macOS/Linux, JDK 8+ and Android SDK platform 29 with build-tools 3
 ```sh
 ./build-apk.sh
 adb install -r DAAK-NODE.apk
+```
+
+Pre-v7 rooted installations use the one-time state-preserving migration:
+
+```sh
+./tools/migrate-v7.sh DAAK-NODE.apk
+# After validating the new launcher:
+REMOVE_LEGACY_PACKAGE=1 ./tools/migrate-v7.sh DAAK-NODE.apk
 ```
 
 Install `companion/termux/daak-open` into Termux's `$PREFIX/bin` and link it

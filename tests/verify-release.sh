@@ -10,7 +10,7 @@ fail() { printf 'FAIL  %s\n' "$1" >&2; exit 1; }
 git diff --check
 pass "git diff hygiene"
 
-sh -n build-apk.sh companion/macos/daak-phone companion/magisk/daak-sshd-firewall.sh companion/magisk/daak-app-cleaner.sh companion/termux/daak-selftest companion/termux/rm-os-sync-daemon companion/termux/rm-os-sync-boot tests/device-app-sweep.sh tests/device-ui-sweep.sh
+sh -n build-apk.sh tools/migrate-v7.sh companion/macos/daak-phone companion/magisk/daak-sshd-firewall.sh companion/magisk/daak-app-cleaner.sh companion/termux/daak-selftest companion/termux/rm-os-sync-daemon companion/termux/rm-os-sync-boot tests/device-app-sweep.sh tests/device-ui-sweep.sh
 pass "shell syntax"
 
 python3 -c 'import ast, pathlib; [ast.parse(pathlib.Path(path).read_text()) for path in ("companion/termux/lolile-preview", "companion/termux/lolile-books-sync", "companion/termux/daak-airplay", "companion/termux/rm-os-sync-once")]'
@@ -25,12 +25,12 @@ pass "paid AirPipe dependency absent"
 pass "clean APK build"
 
 aapt2_bin=${ANDROID_HOME:-$HOME/Library/Android/sdk}/build-tools/35.0.1/aapt2
-"$aapt2_bin" dump badging DAAK-NODE.apk | grep -q "versionCode='29'.*versionName='6.9.7'" || fail "APK version"
-pass "APK version 6.9.7 (29)"
+"$aapt2_bin" dump badging DAAK-NODE.apk | grep -q "versionCode='30'.*versionName='7.0.0'" || fail "APK version"
+pass "APK version 7.0.0 (30)"
 
 remote_test_dir=$(mktemp -d)
-javac --release 8 -d "$remote_test_dir" src/com/firat/node/RemoteRouting.java tests/RemoteRoutingTest.java
-java -cp "$remote_test_dir" com.firat.node.RemoteRoutingTest || fail "direct CRD route tests"
+javac --release 8 -d "$remote_test_dir" src/com/daak/node/RemoteRouting.java tests/RemoteRoutingTest.java
+java -cp "$remote_test_dir" com.daak.node.RemoteRoutingTest || fail "direct CRD route tests"
 rm -rf "$remote_test_dir"
 pass "direct CRD routing uses validated phone-local host IDs"
 "$aapt2_bin" dump xmltree DAAK-NODE.apk --file AndroidManifest.xml | grep -q 'OledPlayerActivity' || fail "OLED player activity"
@@ -53,9 +53,9 @@ fi
 if command -v adb >/dev/null 2>&1; then
     device=${DAAK_DEVICE_SERIAL:-$(adb devices | awk '$2 == "device" {print $1; exit}')}
     if [ -n "$device" ]; then
-        adb -s "$device" shell dumpsys package com.firat.node | grep -q 'versionName=6.9.7' || fail "installed DAAK version"
+        adb -s "$device" shell dumpsys package com.daak.node | grep -q 'versionName=7.0.0' || fail "installed DAAK version"
         adb -s "$device" shell "su -c 'id'" | grep -q 'uid=0(root)' || fail "root"
-        adb -s "$device" shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME | grep -q 'com.firat.node/.MainActivity' || fail "default launcher"
+        adb -s "$device" shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME | grep -q 'com.daak.node/.MainActivity' || fail "default launcher"
         adb -s "$device" shell pm path com.google.chromeremotedesktop >/dev/null || fail "Chrome Remote Desktop"
         ! adb -s "$device" shell pm list packages | grep -qi rustdesk || fail "RustDesk absent"
         adb -s "$device" shell dumpsys deviceidle whitelist | grep -q 'com.bitchat.droid' || fail "Bitchat Doze exemption"
@@ -72,7 +72,7 @@ if command -v adb >/dev/null 2>&1; then
         adb -s "$device" shell "su -c 'pid=\$(cat /data/data/com.termux/files/home/.cache/rm-os-sync-daemon.pid); kill -0 \"\$pid\" && tr \"\\000\" \" \" < \"/proc/\$pid/cmdline\" | grep -q rm-os-sync-daemon'" || fail "RM-OS daemon running"
         adb -s "$device" shell "su -c 'grep -q \"Durum: ONLINE\" \"/sdcard/Documents/DAAK-Vault/RM-OS Sync Status.md\"'" || fail "RM-OS online status"
         adb -s "$device" shell "su -c 'test -x /data/data/com.termux/files/usr/bin/ffmpeg'" || fail "AirPlay ffmpeg runtime"
-        adb -s "$device" shell dumpsys jobscheduler | grep -q 'com.firat.node/.BookBackupJobService' || fail "book backup scheduler"
+        adb -s "$device" shell dumpsys jobscheduler | grep -q 'com.daak.node/.BookBackupJobService' || fail "book backup scheduler"
         adb -s "$device" shell "su -c 'test -f \"/sdcard/Documents/DAAK-Vault/Kitap Backup Status.md\"'" || fail "book backup status"
         adb -s "$device" shell "su -c 'grep -q \"Durum: HAZIR\" \"/sdcard/Documents/DAAK-Vault/Kitap Backup Status.md\"'" || fail "book backup completion"
         adb -s "$device" shell dumpsys package com.foobnix.pro.pdf.reader | grep -q 'versionName=9.4.21-fdroid' || fail "Librera F-Droid reader"
@@ -83,12 +83,12 @@ if command -v adb >/dev/null 2>&1; then
         adb -s "$device" shell pm path org.mozilla.fennec_fdroid >/dev/null || fail "Fennec inline preview"
         [ "$(adb -s "$device" shell getprop service.adb.tcp.port | tr -d '\r')" = 5555 ] || fail "remote ADB service"
         adb -s "$device" shell dumpsys notification --noredact | grep -q 'daak_summary_loud_v1_' || fail "DAAK loud channel"
-        capture_test=$(adb -s "$device" shell am broadcast -a com.firat.node.DIAGNOSTIC_NOTIFICATION_CAPTURE -n com.firat.node/.NodeDiagnosticsReceiver)
+        capture_test=$(adb -s "$device" shell am broadcast -a com.daak.node.DIAGNOSTIC_NOTIFICATION_CAPTURE -n com.daak.node/.NodeDiagnosticsReceiver)
         printf '%s\n' "$capture_test" | grep -q 'data="PASS .*mail_storage=true whatsapp_storage=true"' || fail "mail/WhatsApp capture self-test"
-        airplay_guard=$(adb -s "$device" shell am broadcast -a com.firat.node.DIAGNOSTIC_AIRPLAY_SEND -n com.firat.node/.NodeDiagnosticsReceiver --es path /sdcard/Download/not-allowed.wav)
+        airplay_guard=$(adb -s "$device" shell am broadcast -a com.daak.node.DIAGNOSTIC_AIRPLAY_SEND -n com.daak.node/.NodeDiagnosticsReceiver --es path /sdcard/Download/not-allowed.wav)
         printf '%s\n' "$airplay_guard" | grep -q 'data="FAIL invalid_airplay_path"' || fail "AirPlay diagnostic path guard"
         pass "device integration checks"
     fi
 fi
 
-printf 'DAAK NODE v6.9.7 verification complete.\n'
+printf 'DAAK NODE v7.0.0 verification complete.\n'

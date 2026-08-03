@@ -3,7 +3,7 @@
 # Magisk late_start service for a narrow DAAK NODE cleanup queue. The Android
 # launcher can only request one of the explicitly allowed high-CPU packages;
 # arbitrary commands and arbitrary package names are rejected.
-request_dir=/data/user/0/com.firat.node/files/daak-node
+request_dir=/data/user/0/com.daak.node/files/daak-node
 request_file="$request_dir/cleanup.request"
 heartbeat=/data/adb/daak-app-cleaner.ready
 pidfile=/data/adb/daak-app-cleaner.pid

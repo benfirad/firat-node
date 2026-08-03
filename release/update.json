@@ -1,7 +1,7 @@
 {
-  "versionCode": 29,
-  "versionName": "6.9.7",
-  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.9.7/DAAK-NODE.apk",
-  "sha256": "d37a10471f0d22b5c40a18cad0d4f6ffb2b7fd780b7c17c68154888fa146c30e",
-  "notes": "Remote ekranındaki yapılandırılmış LOLILE ve Mac kartları artık Google'ın resmî Chrome Remote Desktop oturum URL'sini doğrudan açıyor. Host UUID'leri yalnızca telefonun özel config.properties dosyasında tutuluyor; CRD PIN'i, Google parolası veya OAuth anahtarı saklanmıyor. Yapılandırılmamış Bedirhan cihazları güvenli biçimde resmî cihaz listesine düşüyor."
+  "versionCode": 30,
+  "versionName": "7.0.0",
+  "apkUrl": "https://github.com/benfirad/daak-node/releases/download/v7.0.0/DAAK-NODE.apk",
+  "sha256": "b43c3ed259f1d9e05e26ea91c8741570d3ee83938a2bd0809e5233c73e0a96fb",
+  "notes": "FIRAT NODE adı tamamen kaldırıldı: proje, GitHub deposu, Android paket kimliği, dahili aksiyonlar ve yayın zinciri artık DAAK NODE adını kullanıyor. v7 geçişi eski paketteki yerel ayarları root destekli tek seferlik taşıma ile koruyor."
 }

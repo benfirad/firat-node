@@ -41,7 +41,7 @@ home() {
     else
         $adb_bin -s "$device" shell wm set-user-rotation lock 1 >/dev/null 2>&1
     fi
-    $adb_bin -s "$device" shell am start -n com.firat.node/.MainActivity \
+    $adb_bin -s "$device" shell am start -n com.daak.node/.MainActivity \
         -a android.intent.action.MAIN >/dev/null 2>&1
     sleep 0.8
 }
@@ -126,7 +126,7 @@ home_action CALENDAR 720 1708
 home_action MUSIC 258 2095
 home_action PKG:com.sec.android.app.camera 720 2095
 home_action PKG:io.github.yahiaangelo.filmsimulator.android 1182 2095
-home_action PKG:ru.tech.imageresizershrinker 258 2497
+home_action BOOKS 258 2497
 home_action REMEMBER 720 2497
 home_action RMOS 1182 2497; back
 

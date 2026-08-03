@@ -1,4 +1,4 @@
-package com.firat.node;
+package com.daak.node;
 
 import android.app.Notification;
 import android.app.Person;
@@ -15,10 +15,10 @@ import android.util.Log;
 import java.util.List;
 
 public final class NodeDiagnosticsReceiver extends BroadcastReceiver {
-    static final String ACTION = "com.firat.node.DIAGNOSTIC_NOTIFICATION_CAPTURE";
-    static final String ACTION_MEDIA_START = "com.firat.node.DIAGNOSTIC_MEDIA_START";
-    static final String ACTION_MEDIA_STOP = "com.firat.node.DIAGNOSTIC_MEDIA_STOP";
-    static final String ACTION_AIRPLAY_SEND = "com.firat.node.DIAGNOSTIC_AIRPLAY_SEND";
+    static final String ACTION = "com.daak.node.DIAGNOSTIC_NOTIFICATION_CAPTURE";
+    static final String ACTION_MEDIA_START = "com.daak.node.DIAGNOSTIC_MEDIA_START";
+    static final String ACTION_MEDIA_STOP = "com.daak.node.DIAGNOSTIC_MEDIA_STOP";
+    static final String ACTION_AIRPLAY_SEND = "com.daak.node.DIAGNOSTIC_AIRPLAY_SEND";
     private static MediaSession diagnosticSession;
 
     @Override public void onReceive(Context context, Intent intent) {

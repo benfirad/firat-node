@@ -1,4 +1,4 @@
-package com.firat.node;
+package com.daak.node;
 
 import android.content.Context;
 import android.os.Handler;
@@ -19,7 +19,7 @@ final class NodeUpdater {
     private static final int MAX_MANIFEST_BYTES = 256 * 1024;
     private static final long MAX_APK_BYTES = 150L * 1024L * 1024L;
     static final String DEFAULT_MANIFEST =
-            "https://github.com/benfirad/firat-node/releases/latest/download/update.json";
+            "https://github.com/benfirad/daak-node/releases/latest/download/update.json";
 
     interface CheckCallback {
         void onCurrent();

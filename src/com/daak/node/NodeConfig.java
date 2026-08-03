@@ -1,4 +1,4 @@
-package com.firat.node;
+package com.daak.node;
 
 import android.content.Context;
 
@@ -12,8 +12,7 @@ final class NodeConfig {
     static String get(Context context, String key, String fallback) {
         File[] candidates = {
                 new File(context.getFilesDir(), "config.properties"),
-                new File("/sdcard/Download/daak-node/config.properties"),
-                new File("/sdcard/Download/firat-node/config.properties")
+                new File("/sdcard/Download/daak-node/config.properties")
         };
         for (File file : candidates) {
             Properties props = new Properties();

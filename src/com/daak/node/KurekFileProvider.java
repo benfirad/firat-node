@@ -1,4 +1,4 @@
-package com.firat.node;
+package com.daak.node;
 
 import android.content.ContentProvider;
 import android.content.ContentValues;
@@ -15,7 +15,7 @@ import java.io.IOException;
 import java.util.Locale;
 
 public final class KurekFileProvider extends ContentProvider {
-    public static final String AUTHORITY = "com.firat.node.kurek";
+    public static final String AUTHORITY = "com.daak.node.kurek";
     private static final File ROOT = new File("/sdcard/Download/DAAK-Kurek");
 
     @Override public boolean onCreate() { return true; }

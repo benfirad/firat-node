@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.firat.node"
-    android:versionCode="29"
-    android:versionName="6.9.7">
+    package="com.daak.node"
+    android:versionCode="30"
+    android:versionName="7.0.0">
 
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="29" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -66,7 +66,7 @@
             android:permission="android.permission.BIND_JOB_SERVICE" />
         <provider
             android:name=".KurekFileProvider"
-            android:authorities="com.firat.node.kurek"
+            android:authorities="com.daak.node.kurek"
             android:exported="false"
             android:grantUriPermissions="true" />
         <receiver android:name=".NodeAlarmReceiver" android:exported="false" />
@@ -75,10 +75,10 @@
             android:exported="true"
             android:permission="android.permission.DUMP">
             <intent-filter>
-                <action android:name="com.firat.node.DIAGNOSTIC_NOTIFICATION_CAPTURE" />
-                <action android:name="com.firat.node.DIAGNOSTIC_MEDIA_START" />
-                <action android:name="com.firat.node.DIAGNOSTIC_MEDIA_STOP" />
-                <action android:name="com.firat.node.DIAGNOSTIC_AIRPLAY_SEND" />
+                <action android:name="com.daak.node.DIAGNOSTIC_NOTIFICATION_CAPTURE" />
+                <action android:name="com.daak.node.DIAGNOSTIC_MEDIA_START" />
+                <action android:name="com.daak.node.DIAGNOSTIC_MEDIA_STOP" />
+                <action android:name="com.daak.node.DIAGNOSTIC_AIRPLAY_SEND" />
             </intent-filter>
         </receiver>
         <receiver android:name=".NodeBootReceiver" android:exported="false">

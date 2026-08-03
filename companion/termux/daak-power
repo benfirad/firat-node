@@ -37,7 +37,7 @@ shutdown_host() {
         target=$(read_config lolile_ssh lolile)
         remote_command='shutdown /s /t 0'
     else
-        target=$(read_config mac_ssh firat-mac)
+        target=$(read_config mac_ssh daak-mac)
         remote_command='sudo -n shutdown -h now'
     fi
     exec ssh -o BatchMode=yes -o ConnectTimeout=8 "$target" "$remote_command"

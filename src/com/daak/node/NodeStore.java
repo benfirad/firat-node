@@ -1,4 +1,4 @@
-package com.firat.node;
+package com.daak.node;
 
 import android.app.AlarmManager;
 import android.app.NotificationChannel;
@@ -26,12 +26,12 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 
 final class NodeStore {
-    static final String PREFS = "firat_node_private";
-    private static final String LEGACY_CHANNEL = "firat_mail_summary";
+    static final String PREFS = "daak_node_private";
+    private static final String LEGACY_CHANNEL = "daak_mail_summary_legacy";
     private static final String CHANNEL_PREFIX = "daak_summary_loud_v1_";
     private static final String SOUND_PREF = "notification_sound_key";
-    static final String ACTION_HOURLY = "com.firat.node.HOURLY_MAIL";
-    static final String ACTION_MORNING = "com.firat.node.MORNING_MAIL";
+    static final String ACTION_HOURLY = "com.daak.node.HOURLY_MAIL";
+    static final String ACTION_MORNING = "com.daak.node.MORNING_MAIL";
 
     static String channelId(Context context) {
         return CHANNEL_PREFIX + soundKey(context);
