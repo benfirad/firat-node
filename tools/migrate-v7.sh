@@ -52,13 +52,26 @@ do
     $adb_device shell pm grant com.daak.node "$permission"
 done
 $adb_device shell appops set com.daak.node android:write_settings allow
+$adb_device shell settings put global policy_control 'immersive.navigation=*'
 $adb_device shell cmd notification allow_listener com.daak.node/com.daak.node.MailNotificationListener
+$adb_device shell "su -c '
+    service=com.daak.node/.NodeControlAccessibilityService
+    enabled=\$(settings get secure enabled_accessibility_services)
+    case ":\$enabled:" in
+        *":\$service:"*) ;;
+        ":null:"|"::") settings put secure enabled_accessibility_services "\$service" ;;
+        *) settings put secure enabled_accessibility_services "\$enabled:\$service" ;;
+    esac
+    settings put secure accessibility_enabled 1
+'"
 $adb_device shell cmd package set-home-activity com.daak.node/.MainActivity
 $adb_device shell am start -n com.daak.node/.MainActivity -a android.intent.action.MAIN >/dev/null
 
 $adb_device shell dumpsys package com.daak.node | grep -q 'versionName=7.0.0'
 $adb_device shell cmd package resolve-activity --brief -a android.intent.action.MAIN \
     -c android.intent.category.HOME | grep -q 'com.daak.node/.MainActivity'
+$adb_device shell settings get secure enabled_accessibility_services | \
+    grep -q 'com.daak.node/.NodeControlAccessibilityService'
 
 if [ "$legacy_present" -eq 1 ] && [ "$remove_legacy" = 1 ]; then
     $adb_device shell cmd notification disallow_listener \

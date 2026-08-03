@@ -1,0 +1,158 @@
+#!/data/data/com.termux/files/usr/bin/sh
+set -eu
+
+config=/sdcard/Download/daak-node/config.properties
+runtime=/data/data/com.termux/files/home/.cache
+status=$runtime/daak-keenetic-wol-status.txt
+xml=$runtime/daak-keenetic-wol-ui.xml
+runtime_uid=$(id -u)
+runtime_gid=$(id -g)
+case "$runtime_uid:$runtime_gid" in *[!0-9:]*|'') exit 70 ;; esac
+su -c "mkdir -p '$runtime'; chown $runtime_uid:$runtime_gid '$runtime'; [ ! -e '$status' ] || chown $runtime_uid:$runtime_gid '$status'; [ ! -e '$xml' ] || chown $runtime_uid:$runtime_gid '$xml'" >/dev/null 2>&1
+
+read_config() {
+    key=$1
+    fallback=$2
+    if [ -r "$config" ]; then
+        value=$(sed -n "s/^${key}=//p" "$config" | tail -n 1 | tr -d '\r')
+        [ -n "$value" ] && { printf '%s' "$value"; return; }
+    fi
+    printf '%s' "$fallback"
+}
+
+report() {
+    printf '%s %s\n' "$1" "$(date -Iseconds)" > "$status"
+}
+
+return_home() {
+    result=$?
+    set +e
+    final=$(sed -n '1{s/ .*//;p;}' "$status" 2>/dev/null)
+    case "$final" in
+        SENT|READY|LOGIN_REQUIRED|CLOUD_OFFLINE|ROUTER_OFFLINE|DEVICE_LIST_UNAVAILABLE|DEVICE_NOT_FOUND|WOL_BUTTON_UNAVAILABLE|INVALID_ARGUMENT|INVALID_CONFIG) ;;
+        *) final=FAILED ;;
+    esac
+    su -c "am force-stop com.keenetic.kn; am start -W -a android.intent.action.MAIN -c android.intent.category.HOME -n com.daak.node/.MainActivity --ez com.daak.node.extra.FORCE_HOME true --es com.daak.node.extra.WOL_STATUS '$final' >/dev/null" >/dev/null 2>&1
+    return "$result"
+}
+trap return_home EXIT
+
+target=$(read_config keenetic_wol_device PiizaBus)
+dry_run=false
+case "${1:-}" in
+    '') ;;
+    --dry-run) dry_run=true ;;
+    *) report INVALID_ARGUMENT; exit 64 ;;
+esac
+case "$target" in
+    *[!A-Za-z0-9._-]*|'')
+        report INVALID_CONFIG
+        exit 64
+        ;;
+esac
+
+dump_ui() {
+    su -c "uiautomator dump '$xml' >/dev/null && chown $runtime_uid:$runtime_gid '$xml' && chmod 600 '$xml'" >/dev/null 2>&1
+}
+
+center_for() {
+    mode=$1
+    value=$2
+    /data/data/com.termux/files/usr/bin/python - "$xml" "$mode" "$value" <<'PY'
+import re
+import sys
+import xml.etree.ElementTree as ET
+
+path, mode, value = sys.argv[1:]
+try:
+    root = ET.parse(path).getroot()
+except (OSError, ET.ParseError):
+    raise SystemExit(1)
+
+attribute = {"id": "resource-id", "text": "text", "desc": "content-desc"}[mode]
+for node in root.iter("node"):
+    if node.attrib.get(attribute) != value:
+        continue
+    match = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.attrib.get("bounds", ""))
+    if match:
+        left, top, right, bottom = map(int, match.groups())
+        print((left + right) // 2, (top + bottom) // 2)
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
+wait_center() {
+    mode=$1
+    value=$2
+    attempts=${3:-20}
+    count=0
+    while [ "$count" -lt "$attempts" ]; do
+        dump_ui || true
+        coords=$(center_for "$mode" "$value" 2>/dev/null || true)
+        if [ -n "$coords" ]; then
+            printf '%s' "$coords"
+            return 0
+        fi
+        count=$((count + 1))
+        sleep 1
+    done
+    return 1
+}
+
+tap_coords() {
+    x=${1%% *}
+    y=${1##* }
+    case "$x:$y" in *[!0-9:]*|'') return 1 ;; esac
+    su -c "input tap $x $y" >/dev/null 2>&1
+}
+
+report CHECKING
+su -c 'am force-stop com.keenetic.kn; am start -W -n com.keenetic.kn/com.ndmsystems.knext.ui.refactored.startScreen.StartScreenActivity >/dev/null' >/dev/null 2>&1
+
+# A remembered site can open directly; otherwise select the single configured
+# Keenetic site. Resource ids are language independent.
+if ! network_header=$(wait_center id com.keenetic.kn:id/tv_network_clients 7); then
+    if sign_in=$(wait_center id com.keenetic.kn:id/btnSignIn 1); then
+        report LOGIN_REQUIRED
+        exit 3
+    fi
+    network=$(wait_center id com.keenetic.kn:id/tvNetworkName 12) || {
+        report CLOUD_OFFLINE
+        exit 4
+    }
+    tap_coords "$network"
+    network_header=$(wait_center id com.keenetic.kn:id/tv_network_clients 25) || {
+        report ROUTER_OFFLINE
+        exit 5
+    }
+fi
+
+device=$(wait_center text "$target" 8 || true)
+if [ -z "$device" ]; then
+    search=$(wait_center id android:id/search_src_text 3) || {
+        report DEVICE_LIST_UNAVAILABLE
+        exit 6
+    }
+    tap_coords "$search"
+    su -c "input text '$target'" >/dev/null 2>&1
+    device=$(wait_center text "$target" 12) || {
+        report DEVICE_NOT_FOUND
+        exit 7
+    }
+fi
+
+tap_coords "$device"
+wol=$(wait_center id com.keenetic.kn:id/ibWol 15) || {
+    report WOL_BUTTON_UNAVAILABLE
+    exit 8
+}
+
+report SENDING
+if [ "$dry_run" = true ]; then
+    report READY
+    exit 0
+fi
+tap_coords "$wol"
+sleep 2
+report SENT

@@ -14,6 +14,16 @@ handle_request() {
     package=$(tr -d '\r\n' < "$request_file" 2>/dev/null)
     rm -f "$request_file"
     case "$package" in
+        keenetic-wol|keenetic-wol-dry-run)
+            bridge=/data/adb/daak-keenetic-wol
+            [ -x "$bridge" ] || return 1
+            if [ "$package" = keenetic-wol-dry-run ]; then
+                "$bridge" --dry-run >/dev/null 2>&1 || return 1
+            else
+                "$bridge" >/dev/null 2>&1 || return 1
+            fi
+            date +%s > "$heartbeat.tmp" && mv -f "$heartbeat.tmp" "$heartbeat"
+            ;;
         ru.tech.imageresizershrinker|me.zhanghai.android.files|com.google.android.apps.photos)
             if [ "$package" = me.zhanghai.android.files ]; then
                 # Firebase session telemetry can immediately recreate the file

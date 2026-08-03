@@ -13,7 +13,7 @@ mkdir -p "$build_dir/classes" "$build_dir/dex" "$build_dir/generated"
 resource_args=""
 if [ -d "$project_dir/res" ]; then
   "$build_tools/aapt2" compile --dir "$project_dir/res" -o "$build_dir/resources.zip"
-  resource_args="-R $build_dir/resources.zip --java $build_dir/generated"
+  resource_args="--auto-add-overlay -R $build_dir/resources.zip --java $build_dir/generated"
 fi
 "$build_tools/aapt2" link -o "$build_dir/unsigned.apk" -I "$android_jar" \
   --manifest "$project_dir/AndroidManifest.xml" --min-sdk-version 28 --target-sdk-version 29 \

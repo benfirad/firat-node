@@ -21,6 +21,7 @@ showcase_mode=false
 # broadcast address reachable from the phone's current LAN.
 lolile_wol_mac=AA:BB:CC:DD:EE:FF
 lolile_wol_broadcast=192.168.1.255
+keenetic_wol_device=PiizaBus
 lolile_ssh=lolile
 mac_wol_mac=
 mac_wol_broadcast=192.168.1.255

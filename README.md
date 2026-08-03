@@ -52,7 +52,7 @@ These are real screenshots from the SM-G965F. Public showcase mode replaces priv
 - Last-known-good Kurek index caching, so transient SMB retries never blank the disk interface
 - daakLOLILE private dashboard integration with a live availability check and Kurek/Remote offline recovery
 - One-tap Chrome Remote Desktop routing for configured hosts, with the official Google device list as a safe fallback
-- Biometric-gated Lolie/Mac Wake-on-LAN and key-only SSH shutdown controls
+- Biometric-gated Lolie/Mac Wake-on-LAN and key-only SSH shutdown controls; Lolie wake-up is relayed by the signed-in official Keenetic app beneath a true-black DAAK privacy mask, so it still works after the PC and Tailscale node are fully off without exposing Keenetic's automation UI
 - Google Calendar Provider agenda with a read-only launcher view and an Obsidian Markdown mirror
 - Weather-country public/special days merged into the agenda from a weekly Nager.Date cache; no silent cloud-calendar writes
 - Gmail + Thunderbird notification summaries at 07:30 and every hour, with MessagingStyle/InboxStyle parsing, duplicate suppression and per-source bridge health
@@ -74,7 +74,7 @@ These are real screenshots from the SM-G965F. Public showcase mode replaces priv
 - Self-healing RM-OS safe-mirror sync with stale-lock recovery, local Obsidian repacking while Lolie is offline, five-minute battery-light retries and automatic Mac Hub mirroring
 - Obsidian deep link into a local `DAAK-Vault`
 - Right-edge launcher gesture into the control centre
-- Bottom-edge upward gesture that always returns to the DAAK home screen
+- System-wide bottom-edge upward gesture that always returns to the DAAK home screen, backed by a narrow accessibility overlay with no window-content access
 - Android HOME intents reset the launcher to its real home view, including the system bottom-swipe gesture
 - Three normalized, embedded notification tones with immediate preview and a versioned high-importance Android channel
 - Kurek files can stream through a localhost-only, three-minute encrypted SMB3 preview rendered inline by Fennec/Firefox without a persistent phone copy, or download explicitly for offline use
@@ -114,6 +114,8 @@ The Kurek browser uses SMB3 over the private Tailnet. Its credential file lives 
 daakREMEMBER traffic uses its existing HTTP snapshot/merge protocol on TCP 45831. The companion Mac service rejects non-Tailnet source addresses; Tailscale supplies the encrypted transport. DAAK NODE does not expose a new listening port.
 
 Chrome Remote Desktop authentication and PIN entry stay on Google's official `remotedesktop.google.com` surface in Chrome. DAAK NODE may read a configured CRD host UUID from the phone-local `config.properties` file only to open Google's official session URL directly; it never stores CRD PINs, Google passwords or OAuth tokens. Missing or invalid UUIDs fall back to the official device list. DAAK Inbox does not write a dictated item anywhere until the user selects a destination in its confirmation dialog.
+
+Lolie Wake-on-LAN uses the official Keenetic Android application and its existing OAuth session. After biometric approval, the existing Magisk service accepts only the fixed `keenetic-wol` action; the short-lived bridge opens Keenetic beneath a true-black DAAK privacy mask, selects the configured `keenetic_wol_device` using language-independent Android resource identifiers and presses Keenetic's own WOL control. The mask is non-touchable, so the constrained root taps reach Keenetic while none of its UI flashes on screen; only a bottom DAAK status capsule is visible. The bridge then closes Keenetic and returns to DAAK Home with a short result toast. Termux is not granted root. The bridge does not read or copy Google/Keenetic tokens or expose the router publicly. The DAAK accessibility service reads no window content; its only persistent surface is a transparent bottom-edge Home gesture. The router remains the component that emits the magic packet inside the home LAN.
 
 Mac-to-phone control uses Android's authorized ADB key plus the Tailnet-only firewall. Run `companion/macos/daak-phone`; it discovers the online Galaxy S9+ through the local Tailscale CLI and launches scrcpy. Port 5555 is never accepted from Wi-Fi, cellular or the public internet. Remove `/data/adb/daak-remote-adb.enabled` and restart the Magisk service to disable it.
 
@@ -166,6 +168,7 @@ Android additionally enforces that an upgrade carries the same signing certifica
 - [FUTO Voice Input](https://github.com/futo-org/voice-input)
 - [FUTO Keyboard](https://github.com/futo-org/android-keyboard)
 - [Chrome Remote Desktop](https://play.google.com/store/apps/details?id=com.google.chromeremotedesktop)
+- [Keenetic](https://play.google.com/store/apps/details?id=com.keenetic.kn)
 
 ## Platform note
 

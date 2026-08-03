@@ -99,6 +99,8 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public final class MainActivity extends Activity {
+    static final String EXTRA_FORCE_HOME = "com.daak.node.extra.FORCE_HOME";
+    static final String EXTRA_WOL_STATUS = "com.daak.node.extra.WOL_STATUS";
     private static final String BUILD_VERSION = "7.0.0";
     private static final String BOOK_READER_PACKAGE = "com.foobnix.pro.pdf.reader";
     private static final int TERMUX_PERMISSION_REQUEST = 73;
@@ -123,6 +125,7 @@ public final class MainActivity extends Activity {
         hideSystemBars();
         nodeView = new NodeView(this);
         setContentView(nodeView);
+        handleHomeIntent(getIntent());
         applyBlackWallpapers();
         removeLegacyRemoteState();
         NodeStore.migrateLoudSound(this);
@@ -147,7 +150,13 @@ public final class MainActivity extends Activity {
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        if (nodeView != null && Intent.ACTION_MAIN.equals(intent.getAction())) {
+        handleHomeIntent(intent);
+    }
+
+    private void handleHomeIntent(Intent intent) {
+        if (intent == null) return;
+        if (nodeView != null && (Intent.ACTION_MAIN.equals(intent.getAction()) ||
+                intent.getBooleanExtra(EXTRA_FORCE_HOME, false))) {
             pendingProtectedAction = null;
             if (biometricCancellation != null) {
                 biometricCancellation.cancel();
@@ -155,6 +164,28 @@ public final class MainActivity extends Activity {
             }
             nodeView.showMode(NodeView.HOME);
         }
+        String wolStatus = intent.getStringExtra(EXTRA_WOL_STATUS);
+        if (wolStatus != null) {
+            NodeControlAccessibilityService.finishWol();
+            toast(wolStatusMessage(wolStatus));
+            intent.removeExtra(EXTRA_WOL_STATUS);
+        }
+        intent.removeExtra(EXTRA_FORCE_HOME);
+    }
+
+    private String wolStatusMessage(String status) {
+        if ("SENT".equals(status)) return "PiizaBus uyandırma paketi gönderildi";
+        if ("READY".equals(status)) return "Keenetic WOL bağlantısı hazır";
+        if ("LOGIN_REQUIRED".equals(status)) return "Keenetic oturumu gerekli";
+        if ("CLOUD_OFFLINE".equals(status)) return "Keenetic Cloud erişilemiyor";
+        if ("ROUTER_OFFLINE".equals(status)) return "Keenetic router çevrimdışı";
+        if ("DEVICE_LIST_UNAVAILABLE".equals(status)) return "Keenetic cihaz listesi açılamadı";
+        if ("DEVICE_NOT_FOUND".equals(status)) return "PiizaBus Keenetic listesinde bulunamadı";
+        if ("WOL_BUTTON_UNAVAILABLE".equals(status)) return "Keenetic WOL düğmesi bulunamadı";
+        if ("INVALID_CONFIG".equals(status)) return "Keenetic cihaz ayarı geçersiz";
+        if ("INVALID_ARGUMENT".equals(status)) return "Keenetic WOL isteği geçersiz";
+        if ("FAILED".equals(status)) return "Keenetic WOL beklenmedik biçimde durdu";
+        return "Keenetic WOL tamamlanamadı: " + status;
     }
 
     @Override protected void onPause() {
@@ -788,19 +819,8 @@ public final class MainActivity extends Activity {
 
         void requestFastCleanup(final String packageName) {
             if (!isFastCleanupPackage(packageName)) return;
-            new Thread(() -> {
-                File queue = new File(getFilesDir(), "daak-node");
-                File temp = new File(queue, "cleanup.request.tmp");
-                File target = new File(queue, "cleanup.request");
-                try {
-                    if (!queue.exists() && !queue.mkdirs()) return;
-                    FileOutputStream output = new FileOutputStream(temp, false);
-                    output.write(packageName.getBytes("UTF-8"));
-                    output.flush(); output.getFD().sync(); output.close();
-                    if (target.exists() && !target.delete()) return;
-                    if (!temp.renameTo(target)) temp.delete();
-                } catch (Exception ignored) { temp.delete(); }
-            }, "node-app-cleaner").start();
+            new Thread(() -> RootActionQueue.request(MainActivity.this, packageName),
+                    "node-app-cleaner").start();
         }
 
         void playRotationTransition() {
@@ -2667,7 +2687,21 @@ public final class MainActivity extends Activity {
                     if (online) {
                         try {
                             message = "DAAK LOLILE // ONLINE"; invalidate();
-                            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("http://" + host + ":17657/")));
+                            Intent panel = new Intent(Intent.ACTION_VIEW,
+                                    Uri.parse("http://" + host + ":17657/"));
+                            // Cromite's HTTPS-only mode blocks the private HTTP dashboard even
+                            // though it is reachable only through Tailscale. Stock Chrome keeps
+                            // this explicit private-network launch usable without weakening the
+                            // user's default browser policy.
+                            if (getPackageManager().getLaunchIntentForPackage("com.android.chrome") != null) {
+                                panel.setPackage("com.android.chrome");
+                            }
+                            try {
+                                startActivity(panel);
+                            } catch (RuntimeException browserError) {
+                                panel.setPackage(null);
+                                startActivity(panel);
+                            }
                         } catch (RuntimeException error) { toast("daakLOLILE paneli açılamadı"); }
                         return;
                     }
@@ -2807,6 +2841,14 @@ public final class MainActivity extends Activity {
 
         void showPowerPanel(String device) {
             ArrayList<String> rows = new ArrayList<String>();
+            if (device.equals("lolile")) {
+                String target = nodeConfig("keenetic_wol_device", "PiizaBus").trim();
+                rows.add("KEENETIC CLOUD RELAY • " + (target.length() == 0 ? "NOT CONFIGURED" : target));
+                rows.add("WAKE uses the signed-in Keenetic app; the router sends WOL inside the home LAN");
+                rows.add("SHUTDOWN requires biometric approval + key-only SSH");
+                openInfoPanel("POWER_LOLILE", rows);
+                return;
+            }
             String key = device.equals("lolile") ? "lolile_wol_mac" : "mac_wol_mac";
             String configured = nodeConfig(key, "").trim();
             rows.add(configured.length() == 0 ? "WOL MAC NOT CONFIGURED • config.properties" : "WOL MAC CONFIGURED • PRIVATE DEVICE CONFIG");
@@ -2817,8 +2859,24 @@ public final class MainActivity extends Activity {
 
         void runPower(String operation) {
             message = "POWER // " + operation.toUpperCase(Locale.US); invalidate();
-            runTermuxRaw("exec ~/.shortcuts/daak-power " + operation, true, null);
-            toast("Power command sent: " + operation);
+            if (operation.equals("lolile-wake")) {
+                final boolean masked = NodeControlAccessibilityService.showWolMask();
+                if (!masked) {
+                    toast("DAAK Home hareketi kapalı • Erişilebilirlik ayarını aç");
+                    openSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+                    return;
+                }
+                new Thread(() -> {
+                    boolean queued = RootActionQueue.request(MainActivity.this, "keenetic-wol");
+                    if (!queued) runOnUiThread(() -> {
+                        NodeControlAccessibilityService.finishWol();
+                        toast("Keenetic WOL kuyruğa alınamadı");
+                    });
+                }, "node-keenetic-wol").start();
+            } else {
+                runTermuxRaw("exec ~/.shortcuts/daak-power " + operation, true, null);
+                toast("Power command sent: " + operation);
+            }
         }
 
         void confirmShutdown(String device) {
