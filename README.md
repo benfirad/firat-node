@@ -36,6 +36,7 @@ DAAK NODE is a true-black, Linux-flavoured Android launcher and private control 
 - DAAK Inbox routing: review a Codex CLI suggestion before writing dictated text to daakREMEMBER, Obsidian, both, or a Codex session
 - Four user-configurable pinned application slots
 - One-way daakREMEMBER task export into `DAAK-Vault/daakREMEMBER.md` for Obsidian
+- Self-healing RM-OS safe-mirror sync with stale-lock recovery, local Obsidian repacking while Lolie is offline, five-minute battery-light retries and automatic Mac Hub mirroring
 - Obsidian deep link into a local `DAAK-Vault`
 - Right-edge launcher gesture into the control centre
 - Bottom-edge upward gesture that always returns to the DAAK home screen

@@ -1,0 +1,16 @@
+#!/data/data/com.termux/files/usr/bin/sh
+set -u
+
+export HOME=/data/data/com.termux/files/home
+export PATH=/data/data/com.termux/files/usr/bin:/system/bin
+pidfile="$HOME/.cache/rm-os-sync-daemon.pid"
+printf '%s\n' "$$" > "$pidfile"
+trap 'rm -f "$pidfile"' EXIT HUP INT TERM
+
+while :; do
+  if "$HOME/.shortcuts/rm-os-sync-once"; then
+    sleep 300
+  else
+    sleep 120
+  fi
+done

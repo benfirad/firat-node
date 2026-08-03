@@ -10,10 +10,10 @@ fail() { printf 'FAIL  %s\n' "$1" >&2; exit 1; }
 git diff --check
 pass "git diff hygiene"
 
-sh -n build-apk.sh companion/macos/daak-phone companion/magisk/daak-sshd-firewall.sh companion/magisk/daak-app-cleaner.sh companion/termux/daak-selftest tests/device-app-sweep.sh tests/device-ui-sweep.sh
+sh -n build-apk.sh companion/macos/daak-phone companion/magisk/daak-sshd-firewall.sh companion/magisk/daak-app-cleaner.sh companion/termux/daak-selftest companion/termux/rm-os-sync-daemon companion/termux/rm-os-sync-boot tests/device-app-sweep.sh tests/device-ui-sweep.sh
 pass "shell syntax"
 
-python3 -c 'import ast, pathlib; [ast.parse(pathlib.Path(path).read_text()) for path in ("companion/termux/lolile-preview", "companion/termux/lolile-books-sync", "companion/termux/daak-airplay")]'
+python3 -c 'import ast, pathlib; [ast.parse(pathlib.Path(path).read_text()) for path in ("companion/termux/lolile-preview", "companion/termux/lolile-books-sync", "companion/termux/daak-airplay", "companion/termux/rm-os-sync-once")]'
 pass "Kurek and AirPlay bridge syntax"
 
 if rg -qi 'airpipe' AndroidManifest.xml src README.md companion; then
@@ -25,8 +25,8 @@ pass "paid AirPipe dependency absent"
 pass "clean APK build"
 
 aapt2_bin=${ANDROID_HOME:-$HOME/Library/Android/sdk}/build-tools/35.0.1/aapt2
-"$aapt2_bin" dump badging DAAK-NODE.apk | grep -q "versionCode='27'.*versionName='6.9.5'" || fail "APK version"
-pass "APK version 6.9.5 (27)"
+"$aapt2_bin" dump badging DAAK-NODE.apk | grep -q "versionCode='28'.*versionName='6.9.6'" || fail "APK version"
+pass "APK version 6.9.6 (28)"
 "$aapt2_bin" dump xmltree DAAK-NODE.apk --file AndroidManifest.xml | grep -q 'OledPlayerActivity' || fail "OLED player activity"
 pass "secure OLED lock player manifest"
 
@@ -47,7 +47,7 @@ fi
 if command -v adb >/dev/null 2>&1; then
     device=${DAAK_DEVICE_SERIAL:-$(adb devices | awk '$2 == "device" {print $1; exit}')}
     if [ -n "$device" ]; then
-        adb -s "$device" shell dumpsys package com.firat.node | grep -q 'versionName=6.9.5' || fail "installed DAAK version"
+        adb -s "$device" shell dumpsys package com.firat.node | grep -q 'versionName=6.9.6' || fail "installed DAAK version"
         adb -s "$device" shell "su -c 'id'" | grep -q 'uid=0(root)' || fail "root"
         adb -s "$device" shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME | grep -q 'com.firat.node/.MainActivity' || fail "default launcher"
         adb -s "$device" shell pm path com.google.chromeremotedesktop >/dev/null || fail "Chrome Remote Desktop"
@@ -61,6 +61,10 @@ if command -v adb >/dev/null 2>&1; then
         adb -s "$device" shell "su -c 'test -x /data/data/com.termux/files/home/.shortcuts/lolile-preview'" || fail "Kurek preview bridge"
         adb -s "$device" shell "su -c 'test -x /data/data/com.termux/files/home/.shortcuts/lolile-books-sync'" || fail "book backup bridge"
         adb -s "$device" shell "su -c 'test -x /data/data/com.termux/files/home/.shortcuts/daak-airplay'" || fail "free AirPlay bridge"
+        adb -s "$device" shell "su -c 'test -x /data/data/com.termux/files/home/.shortcuts/rm-os-sync-once'" || fail "RM-OS one-shot sync"
+        adb -s "$device" shell "su -c 'test -x /data/data/com.termux/files/home/.local/bin/rm-os-sync-daemon'" || fail "RM-OS sync daemon"
+        adb -s "$device" shell "su -c 'pid=\$(cat /data/data/com.termux/files/home/.cache/rm-os-sync-daemon.pid); kill -0 \"\$pid\" && tr \"\\000\" \" \" < \"/proc/\$pid/cmdline\" | grep -q rm-os-sync-daemon'" || fail "RM-OS daemon running"
+        adb -s "$device" shell "su -c 'grep -q \"Durum: ONLINE\" \"/sdcard/Documents/DAAK-Vault/RM-OS Sync Status.md\"'" || fail "RM-OS online status"
         adb -s "$device" shell "su -c 'test -x /data/data/com.termux/files/usr/bin/ffmpeg'" || fail "AirPlay ffmpeg runtime"
         adb -s "$device" shell dumpsys jobscheduler | grep -q 'com.firat.node/.BookBackupJobService' || fail "book backup scheduler"
         adb -s "$device" shell "su -c 'test -f \"/sdcard/Documents/DAAK-Vault/Kitap Backup Status.md\"'" || fail "book backup status"
@@ -81,4 +85,4 @@ if command -v adb >/dev/null 2>&1; then
     fi
 fi
 
-printf 'DAAK NODE v6.9.5 verification complete.\n'
+printf 'DAAK NODE v6.9.6 verification complete.\n'

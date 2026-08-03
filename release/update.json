@@ -1,7 +1,7 @@
 {
-  "versionCode": 27,
-  "versionName": "6.9.5",
-  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.9.5/DAAK-NODE.apk",
-  "sha256": "ee4976e707d30600c9cd58bcb2bf27b349cdc05464e1e288ef6a3fc30cf7642d",
-  "notes": "Librera F-Droid, 547 kitaplık üç sütunlu OLED kapak galerisi ve dahili EPUB/PDF okuyucu olarak DAAK ana ekranına eklendi. daakREMEMBER artık Gelenler, Yapılacaklar, WhatsApp, Mailler ve Notlar klasörlerini; klasöre taşıma akışını ve otomatik mail/WhatsApp yönlendirmesini destekliyor."
+  "versionCode": 28,
+  "versionName": "6.9.6",
+  "apkUrl": "https://github.com/benfirad/firat-node/releases/download/v6.9.6/DAAK-NODE.apk",
+  "sha256": "7461bc1f280703e7f3d13003db39c74ecf6d4de7f9ed209013e5adbbd8be90e8",
+  "notes": "RM-OS senkronu sahipsiz kilitleri otomatik iyileştiriyor, DAAK açıldığında düşük tüketimli servisi ayağa kaldırıyor ve 5 dakikada bir Lolie güvenli aynasını yeniliyor. daakREMEMBER/Obsidian arşivi Lolie geçici olarak çevrimdışı olsa bile güncel tutuluyor; telefon ve Mac Hub zinciri uçtan uca doğrulandı."
 }

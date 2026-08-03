@@ -1,0 +1,30 @@
+#!/data/data/com.termux/files/usr/bin/sh
+set -u
+
+export HOME=/data/data/com.termux/files/home
+export PATH=/data/data/com.termux/files/usr/bin:/system/bin
+mkdir -p "$HOME/.cache"
+pidfile="$HOME/.cache/rm-os-sync-daemon.pid"
+start_lock="$HOME/.cache/rm-os-sync-daemon-start.lock"
+
+if ! mkdir "$start_lock" 2>/dev/null; then
+  exit 0
+fi
+trap 'rmdir "$start_lock" 2>/dev/null || true' EXIT HUP INT TERM
+
+running=false
+pid=$(cat "$pidfile" 2>/dev/null || printf 0)
+case "$pid" in
+  ''|*[!0-9]*) ;;
+  *)
+    if kill -0 "$pid" 2>/dev/null && \
+       tr '\000' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -q 'rm-os-sync-daemon'; then
+      running=true
+    fi
+    ;;
+esac
+
+if [ "$running" != true ]; then
+  rm -f "$pidfile"
+  nohup "$HOME/.local/bin/rm-os-sync-daemon" >> "$HOME/.cache/rm-os-sync.log" 2>&1 &
+fi

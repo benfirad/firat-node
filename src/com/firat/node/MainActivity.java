@@ -597,6 +597,7 @@ public final class MainActivity extends Activity {
                 if (!active || destroyed) return;
                 refreshStatus();
                 refreshRemember();
+                syncObsidian(false);
                 if (System.currentTimeMillis() - lastCalendarRefresh > 10L * 60L * 1000L) refreshCalendar();
                 handler.postDelayed(this, 60_000L);
             }
@@ -642,6 +643,7 @@ public final class MainActivity extends Activity {
             handler.removeCallbacks(appCleanup);
             refreshStatus();
             refreshRemember();
+            ensureRmOsDaemon();
             syncObsidian(false);
             handler.postDelayed(statusTicker, 60_000L);
             handler.postDelayed(oledTicker, 30_000L);
@@ -652,7 +654,13 @@ public final class MainActivity extends Activity {
             long now = System.currentTimeMillis();
             if (!force && now - lastObsidianSync < 10L * 60L * 1000L) return;
             lastObsidianSync = now;
-            runTermuxRaw("exec ~/.shortcuts/remember-obsidian-sync", true, null);
+            runTermuxRaw("~/.shortcuts/remember-obsidian-sync && exec ~/.shortcuts/rm-os-sync-once", true, null);
+        }
+
+        void ensureRmOsDaemon() {
+            if (checkSelfPermission("com.termux.permission.RUN_COMMAND") != PackageManager.PERMISSION_GRANTED) return;
+            if (getPackageManager().getLaunchIntentForPackage("com.termux") == null) return;
+            runTermuxRaw("exec ~/.termux/boot/20-rm-os-sync", true, null);
         }
 
         void pauseUpdates() {
