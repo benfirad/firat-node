@@ -52,7 +52,7 @@ These are real screenshots from the SM-G965F. Public showcase mode replaces priv
 - Last-known-good Kurek index caching, so transient SMB retries never blank the disk interface
 - daakLOLILE private dashboard integration with a live availability check and Kurek/Remote offline recovery
 - One-tap Chrome Remote Desktop routing for configured hosts, with the official Google device list as a safe fallback
-- Biometric-gated Lolie/Mac Wake-on-LAN and key-only SSH shutdown controls
+- Biometric-gated Lolie/Mac Wake-on-LAN and key-only SSH shutdown controls; Lolie wake-up uses a zero-UI local magic packet while the phone is on the home LAN, then falls back to the signed-in official Keenetic app beneath a true-black DAAK privacy mask when the router's cloud relay is required
 - Google Calendar Provider agenda with a read-only launcher view and an Obsidian Markdown mirror
 - Weather-country public/special days merged into the agenda from a weekly Nager.Date cache; no silent cloud-calendar writes
 - Gmail + Thunderbird notification summaries at 07:30 and every hour, with MessagingStyle/InboxStyle parsing, duplicate suppression and per-source bridge health
@@ -61,10 +61,12 @@ These are real screenshots from the SM-G965F. Public showcase mode replaces priv
 - Local sender/spam filters; the launcher never sends email
 - Open-Meteo current weather using coarse device location
 - Adaptive 2/3/5-minute Lolie reconnect backoff
-- A rotating 24-hour, 40-item local mail-metadata buffer; sender/subject summaries never leave the phone and the launcher has no send path
+- A rotating 24-hour, 40-item local mail-metadata buffer; sender/subject summaries remain phone-only unless one row is explicitly selected and confirmed with `AĞA GÖNDER`
 - Native Tailnet integration with daakREMEMBER for reading, adding, editing, completing, deleting, undoing and moving notes between Inbox, Tasks, WhatsApp, Mail and Notes folders
-- Opt-in, keyword-limited WhatsApp notification-to-task capture; routed to both the WhatsApp folder and the Tasks smart view, and never sends messages
-- New Gmail/Thunderbird notification summaries are routed to daakREMEMBER's Mail folder after the existing local spam and duplicate filters
+- Dynamic daakREMEMBER folder management from Android, including custom-folder creation, safe empty-folder deletion and destination selection before deleting a non-empty folder
+- A ten-second undo window after Android deletion; the Mac host permanently purges the tombstone after 24 hours
+- Opt-in, keyword-limited WhatsApp notification-to-task capture stays in the phone-local vault and never sends messages
+- Mail and WhatsApp panels expose a per-item, confirmed Tailnet share action; there is no automatic export, retry queue or bulk bridge to Mac/Windows devices
 - Official WhatsApp companion-device setup, so the node can join an existing account by QR without its own SIM
 - On-device Turkish dictation through Android's speech-recognition contract (tested with FUTO Voice Input)
 - Ten-minute cleanup for ordinary non-system apps launched from DAAK, with a narrow root-mediated 15-second force-stop for Image Toolbox, Material Files and Google Photos; messaging, VPN, mail, music and input services stay protected
@@ -74,7 +76,7 @@ These are real screenshots from the SM-G965F. Public showcase mode replaces priv
 - Self-healing RM-OS safe-mirror sync with stale-lock recovery, local Obsidian repacking while Lolie is offline, five-minute battery-light retries and automatic Mac Hub mirroring
 - Obsidian deep link into a local `DAAK-Vault`
 - Right-edge launcher gesture into the control centre
-- Bottom-edge upward gesture that always returns to the DAAK home screen
+- System-wide bottom-edge upward gesture that always returns to the DAAK home screen, backed by a narrow accessibility overlay with no window-content access
 - Android HOME intents reset the launcher to its real home view, including the system bottom-swipe gesture
 - Three normalized, embedded notification tones with immediate preview and a versioned high-importance Android channel
 - Kurek files can stream through a localhost-only, three-minute encrypted SMB3 preview rendered inline by Fennec/Firefox without a persistent phone copy, or download explicitly for offline use
@@ -105,7 +107,7 @@ DAAK NODE contains no SSH keys, passwords, OAuth tokens, Tailnet addresses or ho
 
 Copy `config.properties.example` to that path and edit it locally. Keep remote services bound to Tailscale, use key-only SSH, and do not expose Termux SSH directly to the public internet. The deployed Magisk service `companion/magisk/daak-sshd-firewall.sh` maintains an idempotent IPv4/IPv6 firewall and heartbeat; `companion/termux/daak-sshd` refuses to start sshd when that heartbeat is stale. Termux itself is never granted root.
 
-Mail access is metadata-only through Android's notification listener: sender, subject and timestamp. WhatsApp processing is limited to notification text that Android has already decrypted and displayed; only explicit task-like phrases are captured. DAAK NODE never sends mail or WhatsApp messages.
+Mail access is metadata-only through Android's notification listener: sender, subject and timestamp. WhatsApp processing is limited to notification text that Android has already decrypted and displayed; only explicit task-like phrases are captured. Both stores are local by default. A record reaches daakREMEMBER only after the user taps that exact row and confirms `AĞA GÖNDER`; failed shares stay local and are not queued for later. DAAK NODE never sends mail or WhatsApp messages.
 
 The OLED player uses Android's active MediaSession and `showWhenLocked`; it never dismisses or replaces the secure keyguard. Back/exit returns to the normal fingerprint, iris or PIN lock screen. Its automatic trigger runs only on `SCREEN_OFF` while a session is actively playing.
 
@@ -114,6 +116,8 @@ The Kurek browser uses SMB3 over the private Tailnet. Its credential file lives 
 daakREMEMBER traffic uses its existing HTTP snapshot/merge protocol on TCP 45831. The companion Mac service rejects non-Tailnet source addresses; Tailscale supplies the encrypted transport. DAAK NODE does not expose a new listening port.
 
 Chrome Remote Desktop authentication and PIN entry stay on Google's official `remotedesktop.google.com` surface in Chrome. DAAK NODE may read a configured CRD host UUID from the phone-local `config.properties` file only to open Google's official session URL directly; it never stores CRD PINs, Google passwords or OAuth tokens. Missing or invalid UUIDs fall back to the official device list. DAAK Inbox does not write a dictated item anywhere until the user selects a destination in its confirmation dialog.
+
+Lolie Wake-on-LAN first compares the configured broadcast address with the phone's active network. On the home LAN, Termux sends the fixed Ethernet magic packet directly and DAAK Home never leaves the foreground. Away from home, the official Keenetic Android application and its existing OAuth session provide the fallback relay. After biometric approval, the Magisk service accepts only the fixed `keenetic-wol` action. A short-lived [scrcpy](https://github.com/Genymobile/scrcpy) 4.1 virtual display hosts Keenetic while display 0 remains on DAAK Home. The DAAK accessibility service is package-filtered to `com.keenetic.kn`; during this request it activates only the remembered network, configured `keenetic_wol_device`, and Keenetic's own WOL control. A small bottom status capsule is the only visible UI. The virtual display and Keenetic process are destroyed immediately afterward. The bridge does not read, decrypt, copy, or log Google/Keenetic tokens and does not expose the router publicly. The router remains the fallback component that emits the magic packet inside the home LAN.
 
 Mac-to-phone control uses Android's authorized ADB key plus the Tailnet-only firewall. Run `companion/macos/daak-phone`; it discovers the online Galaxy S9+ through the local Tailscale CLI and launches scrcpy. Port 5555 is never accepted from Wi-Fi, cellular or the public internet. Remove `/data/adb/daak-remote-adb.enabled` and restart the Magisk service to disable it.
 
@@ -166,6 +170,7 @@ Android additionally enforces that an upgrade carries the same signing certifica
 - [FUTO Voice Input](https://github.com/futo-org/voice-input)
 - [FUTO Keyboard](https://github.com/futo-org/android-keyboard)
 - [Chrome Remote Desktop](https://play.google.com/store/apps/details?id=com.google.chromeremotedesktop)
+- [Keenetic](https://play.google.com/store/apps/details?id=com.keenetic.kn)
 
 ## Platform note
 

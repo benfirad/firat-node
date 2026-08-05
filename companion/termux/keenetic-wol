@@ -1,0 +1,153 @@
+#!/data/data/com.termux/files/usr/bin/sh
+set -eu
+
+# Headless Keenetic WOL bridge. A short-lived scrcpy virtual display hosts the
+# official signed-in app; DAAK's package-scoped accessibility service activates
+# only the remembered network, configured device and WOL button. Nothing is
+# rendered on display 0 and no Keenetic token leaves the official app process.
+
+config=/sdcard/Download/daak-node/config.properties
+runtime=/data/data/com.termux/files/home/.cache
+status=$runtime/daak-keenetic-wol-status.txt
+result=/data/user/0/com.daak.node/files/daak-node/keenetic.result
+server_jar=/data/adb/daak-scrcpy-server.jar
+server_log=/data/local/tmp/daak-headless-wol-server.log
+drain_log=/data/local/tmp/daak-headless-wol-drain.log
+python=/data/data/com.termux/files/usr/bin/python
+server_pid=
+drain_pid=
+display_id=
+notified_by_service=false
+
+read_config() {
+    key=$1
+    fallback=$2
+    if [ -r "$config" ]; then
+        value=$(sed -n "s/^${key}=//p" "$config" | tail -n 1 | tr -d '\r')
+        [ -n "$value" ] && { printf '%s' "$value"; return; }
+    fi
+    printf '%s' "$fallback"
+}
+
+report() {
+    mkdir -p "$runtime"
+    printf '%s %s\n' "$1" "$(date -Iseconds)" > "$status"
+}
+
+cleanup() {
+    set +e
+    [ -z "$drain_pid" ] || kill "$drain_pid" >/dev/null 2>&1
+    [ -z "$server_pid" ] || kill "$server_pid" >/dev/null 2>&1
+    am force-stop --user 0 com.keenetic.kn >/dev/null 2>&1
+    rm -f "$result" "$result.tmp"
+}
+
+finish() {
+    exit_code=$?
+    set +e
+    final=$(sed -n '1{s/ .*//;p;}' "$status" 2>/dev/null)
+    case "$final" in
+        SENT|READY|LOGIN_REQUIRED|CLOUD_OFFLINE|ROUTER_OFFLINE|DEVICE_LIST_UNAVAILABLE|DEVICE_NOT_FOUND|WOL_BUTTON_UNAVAILABLE|INVALID_ARGUMENT|INVALID_CONFIG|HEADLESS_UNAVAILABLE) ;;
+        *) final=FAILED ;;
+    esac
+    cleanup
+    if [ "$notified_by_service" != true ]; then
+        am start --display 0 -W -a android.intent.action.MAIN \
+            -c android.intent.category.HOME -n com.daak.node/.MainActivity \
+            --ez com.daak.node.extra.FORCE_HOME true \
+            --es com.daak.node.extra.WOL_STATUS "$final" >/dev/null 2>&1
+    fi
+    return "$exit_code"
+}
+trap finish EXIT INT TERM
+
+target=$(read_config keenetic_wol_device PiizaBus)
+dry_run=false
+case "${1:-}" in
+    '') ;;
+    --dry-run) dry_run=true ;;
+    *) report INVALID_ARGUMENT; exit 64 ;;
+esac
+case "$target" in
+    *[!A-Za-z0-9._-]*|'') report INVALID_CONFIG; exit 64 ;;
+esac
+[ -r "$server_jar" ] && [ -x "$python" ] || {
+    report HEADLESS_UNAVAILABLE
+    exit 69
+}
+
+rm -f "$result" "$result.tmp" "$server_log" "$drain_log"
+report CHECKING
+
+CLASSPATH="$server_jar" app_process / com.genymobile.scrcpy.Server 4.1 \
+    tunnel_forward=true audio=false control=true \
+    new_display=720x1280/320 max_fps=2 video_bit_rate=128000 keep_active=true \
+    send_device_meta=false send_frame_meta=false cleanup=false log_level=warn \
+    >"$server_log" 2>&1 &
+server_pid=$!
+
+"$python" - >"$drain_log" 2>&1 <<'PY' &
+import socket
+import threading
+import time
+
+def connect():
+    for _ in range(120):
+        stream = socket.socket(socket.AF_UNIX)
+        try:
+            stream.connect("\0scrcpy")
+            return stream
+        except OSError:
+            stream.close()
+            time.sleep(0.1)
+    raise SystemExit(2)
+
+video = connect()
+control = connect()
+threading.Thread(target=lambda: [None for _ in iter(lambda: video.recv(65536), b"")],
+                 daemon=True).start()
+while control.recv(1):
+    pass
+PY
+drain_pid=$!
+
+attempt=0
+while [ "$attempt" -lt 120 ]; do
+    display_id=$(dumpsys display 2>/dev/null |
+        sed -n 's/.*DisplayInfo{"scrcpy, displayId \([0-9][0-9]*\)".*/\1/p' |
+        tail -n 1)
+    [ -n "$display_id" ] && break
+    kill -0 "$server_pid" 2>/dev/null || break
+    attempt=$((attempt + 1))
+    sleep 0.1
+done
+case "$display_id" in
+    ''|*[!0-9]*) report HEADLESS_UNAVAILABLE; exit 69 ;;
+esac
+
+am force-stop --user 0 com.keenetic.kn >/dev/null 2>&1
+am start --display "$display_id" -f 0x18000000 \
+    -n com.keenetic.kn/com.ndmsystems.knext.ui.refactored.mainactivity.MainActivity \
+    >/dev/null 2>&1 || { report HEADLESS_UNAVAILABLE; exit 69; }
+
+attempt=0
+while [ "$attempt" -lt 110 ]; do
+    if [ -s "$result" ]; then
+        final=$(tr -d '\r\n' < "$result")
+        case "$final" in
+            SENT|READY|LOGIN_REQUIRED|CLOUD_OFFLINE|ROUTER_OFFLINE|DEVICE_LIST_UNAVAILABLE|DEVICE_NOT_FOUND|WOL_BUTTON_UNAVAILABLE)
+                report "$final"
+                notified_by_service=true
+                case "$final" in SENT|READY) exit 0 ;; *) exit 1 ;; esac
+                ;;
+        esac
+        report FAILED
+        exit 1
+    fi
+    kill -0 "$server_pid" 2>/dev/null || { report HEADLESS_UNAVAILABLE; exit 69; }
+    attempt=$((attempt + 1))
+    sleep 0.5
+done
+
+report CLOUD_OFFLINE
+exit 1

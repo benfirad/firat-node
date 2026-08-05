@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.daak.node"
-    android:versionCode="30"
-    android:versionName="7.0.0">
+    android:versionCode="31"
+    android:versionName="7.0.1">
 
     <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="29" />
     <uses-permission android:name="android.permission.INTERNET" />
@@ -61,6 +61,18 @@
             </intent-filter>
         </service>
         <service
+            android:name=".NodeControlAccessibilityService"
+            android:exported="false"
+            android:label="DAAK Home Gesture"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/node_control_accessibility" />
+        </service>
+        <service
             android:name=".BookBackupJobService"
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
@@ -79,6 +91,7 @@
                 <action android:name="com.daak.node.DIAGNOSTIC_MEDIA_START" />
                 <action android:name="com.daak.node.DIAGNOSTIC_MEDIA_STOP" />
                 <action android:name="com.daak.node.DIAGNOSTIC_AIRPLAY_SEND" />
+                <action android:name="com.daak.node.DIAGNOSTIC_KEENETIC_WOL" />
             </intent-filter>
         </receiver>
         <receiver android:name=".NodeBootReceiver" android:exported="false">

@@ -19,6 +19,7 @@ public final class NodeDiagnosticsReceiver extends BroadcastReceiver {
     static final String ACTION_MEDIA_START = "com.daak.node.DIAGNOSTIC_MEDIA_START";
     static final String ACTION_MEDIA_STOP = "com.daak.node.DIAGNOSTIC_MEDIA_STOP";
     static final String ACTION_AIRPLAY_SEND = "com.daak.node.DIAGNOSTIC_AIRPLAY_SEND";
+    static final String ACTION_KEENETIC_WOL = "com.daak.node.DIAGNOSTIC_KEENETIC_WOL";
     private static MediaSession diagnosticSession;
 
     @Override public void onReceive(Context context, Intent intent) {
@@ -54,6 +55,15 @@ public final class NodeDiagnosticsReceiver extends BroadcastReceiver {
             } catch (RuntimeException error) {
                 setResultData("FAIL diagnostic_airplay=" + error.getClass().getSimpleName());
             }
+            return;
+        }
+        if (ACTION_KEENETIC_WOL.equals(intent.getAction())) {
+            boolean prepared = NodeControlAccessibilityService.startHeadlessWol("PiizaBus", true);
+            boolean queued = prepared && RootActionQueue.request(context, "keenetic-wol-dry-run");
+            if (prepared && !queued) NodeControlAccessibilityService.finishWol();
+            setResultData(queued ? "PASS diagnostic_keenetic_wol=headless_and_queued" :
+                    prepared ? "FAIL diagnostic_keenetic_wol=queue_error" :
+                    "FAIL diagnostic_keenetic_wol=gesture_service_offline");
             return;
         }
         if (!ACTION.equals(intent.getAction())) return;

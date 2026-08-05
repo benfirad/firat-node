@@ -14,6 +14,24 @@ handle_request() {
     package=$(tr -d '\r\n' < "$request_file" 2>/dev/null)
     rm -f "$request_file"
     case "$package" in
+        keenetic-wol|keenetic-wol-dry-run)
+            bridge=/data/adb/daak-keenetic-wol
+            lock=/data/adb/daak-keenetic-wol.lock
+            [ -x "$bridge" ] || return 1
+            # inotify can dispatch two queue writes before the first UI bridge
+            # returns. Ignore the duplicate instead of exposing overlapping
+            # Keenetic transitions or sending two magic packets.
+            mkdir "$lock" 2>/dev/null || return 0
+            if [ "$package" = keenetic-wol-dry-run ]; then
+                "$bridge" --dry-run >/dev/null 2>&1
+            else
+                "$bridge" >/dev/null 2>&1
+            fi
+            result=$?
+            rmdir "$lock" >/dev/null 2>&1 || true
+            [ "$result" -eq 0 ] || return 1
+            date +%s > "$heartbeat.tmp" && mv -f "$heartbeat.tmp" "$heartbeat"
+            ;;
         ru.tech.imageresizershrinker|me.zhanghai.android.files|com.google.android.apps.photos)
             if [ "$package" = me.zhanghai.android.files ]; then
                 # Firebase session telemetry can immediately recreate the file

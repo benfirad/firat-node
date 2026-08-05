@@ -1,8 +1,6 @@
 package com.daak.node;
 
 import android.content.Context;
-import android.content.SharedPreferences;
-
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -19,50 +17,30 @@ final class RememberBridge {
 
     private RememberBridge() { }
 
-    static void pushOrQueue(final Context context, final String text) {
-        pushOrQueue(context, text, "inbox", new JSONArray());
+    interface SendCallback {
+        void onComplete(boolean sent);
     }
 
-    static void pushOrQueue(final Context context, final String text,
-                            final String folder, final JSONArray labels) {
+    /**
+     * The only network write entry point. Callers must invoke this from an
+     * explicit user action for one selected item; notification capture never
+     * reaches this method.
+     */
+    static void sendSelected(final Context context, final String text,
+                             final String folder, final JSONArray labels,
+                             final SendCallback callback) {
         new Thread(new Runnable() {
             @Override public void run() {
-                if (!addNote(context, text, folder, labels)) enqueue(context, text, folder, labels);
+                boolean sent = text != null && text.trim().length() > 0 &&
+                        addNote(context, text.trim(), folder, labels);
+                if (callback != null) callback.onComplete(sent);
             }
-        }, "daak-remember-notification").start();
+        }, "daak-remember-explicit-share").start();
     }
 
-    static void flushPending(final Context context) {
-        new Thread(new Runnable() {
-            @Override public void run() {
-                SharedPreferences prefs = context.getSharedPreferences(NodeStore.PREFS, 0);
-                try {
-                    JSONArray old = new JSONArray(prefs.getString(PENDING, "[]"));
-                    JSONArray remaining = new JSONArray();
-                    for (int i = 0; i < old.length(); i++) {
-                        Object pending = old.opt(i);
-                        String text;
-                        String folder = "inbox";
-                        JSONArray labels = new JSONArray();
-                        if (pending instanceof JSONObject) {
-                            JSONObject object = (JSONObject)pending;
-                            text = object.optString("text", "");
-                            folder = object.optString("folder", "inbox");
-                            JSONArray savedLabels = object.optJSONArray("labels");
-                            if (savedLabels != null) labels = savedLabels;
-                        } else {
-                            text = old.optString(i, "");
-                        }
-                        if (text.length() > 0 && !addNote(context, text, folder, labels)) {
-                            JSONObject retry = new JSONObject();
-                            retry.put("text", text); retry.put("folder", folder); retry.put("labels", labels);
-                            remaining.put(retry);
-                        }
-                    }
-                    prefs.edit().putString(PENDING, remaining.toString()).apply();
-                } catch (Exception ignored) { }
-            }
-        }, "daak-remember-retry").start();
+    /** Prevent pre-v7 queued notification content from leaking after upgrade. */
+    static void clearLegacyAutomaticQueue(Context context) {
+        context.getSharedPreferences(NodeStore.PREFS, 0).edit().remove(PENDING).apply();
     }
 
     private static synchronized boolean addNote(Context context, String text,
@@ -120,21 +98,6 @@ final class RememberBridge {
         } finally {
             connection.disconnect();
         }
-    }
-
-    private static synchronized void enqueue(Context context, String text,
-                                             String folder, JSONArray labels) {
-        try {
-            SharedPreferences prefs = context.getSharedPreferences(NodeStore.PREFS, 0);
-            JSONArray old = new JSONArray(prefs.getString(PENDING, "[]"));
-            JSONArray next = new JSONArray();
-            for (int i = 0; i < old.length() && next.length() < 29; i++) next.put(old.opt(i));
-            JSONObject item = new JSONObject();
-            item.put("text", text); item.put("folder", normalizeFolder(folder));
-            item.put("labels", labels == null ? new JSONArray() : labels);
-            next.put(item);
-            prefs.edit().putString(PENDING, next.toString()).apply();
-        } catch (Exception ignored) { }
     }
 
     private static String normalizeFolder(String folder) {

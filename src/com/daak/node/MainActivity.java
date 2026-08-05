@@ -79,6 +79,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.HttpURLConnection;
+import java.net.InterfaceAddress;
 import java.net.NetworkInterface;
 import java.net.Socket;
 import java.net.URL;
@@ -99,7 +100,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public final class MainActivity extends Activity {
-    private static final String BUILD_VERSION = "7.0.0";
+    static final String EXTRA_FORCE_HOME = "com.daak.node.extra.FORCE_HOME";
+    static final String EXTRA_WOL_STATUS = "com.daak.node.extra.WOL_STATUS";
+    private static final String BUILD_VERSION = "7.0.1";
     private static final String BOOK_READER_PACKAGE = "com.foobnix.pro.pdf.reader";
     private static final int TERMUX_PERMISSION_REQUEST = 73;
     private static final int CALENDAR_PERMISSION_REQUEST = 74;
@@ -112,6 +115,8 @@ public final class MainActivity extends Activity {
     private CancellationSignal biometricCancellation;
     private long vaultUnlockedUntil;
     private boolean updateCheckRunning;
+    private String pendingWolStatus;
+    private int pendingWolGeneration = -1;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -123,8 +128,10 @@ public final class MainActivity extends Activity {
         hideSystemBars();
         nodeView = new NodeView(this);
         setContentView(nodeView);
+        handleHomeIntent(getIntent());
         applyBlackWallpapers();
         removeLegacyRemoteState();
+        RememberBridge.clearLegacyAutomaticQueue(getApplicationContext());
         NodeStore.migrateLoudSound(this);
         NodeStore.schedule(this);
         ensureTermuxPermission();
@@ -136,7 +143,6 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         hideSystemBars();
-        RememberBridge.flushPending(getApplicationContext());
         if (nodeView != null) {
             nodeView.reloadApps();
             nodeView.startUpdates();
@@ -147,7 +153,13 @@ public final class MainActivity extends Activity {
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        if (nodeView != null && Intent.ACTION_MAIN.equals(intent.getAction())) {
+        handleHomeIntent(intent);
+    }
+
+    private void handleHomeIntent(Intent intent) {
+        if (intent == null) return;
+        if (nodeView != null && (Intent.ACTION_MAIN.equals(intent.getAction()) ||
+                intent.getBooleanExtra(EXTRA_FORCE_HOME, false))) {
             pendingProtectedAction = null;
             if (biometricCancellation != null) {
                 biometricCancellation.cancel();
@@ -155,6 +167,30 @@ public final class MainActivity extends Activity {
             }
             nodeView.showMode(NodeView.HOME);
         }
+        String wolStatus = intent.getStringExtra(EXTRA_WOL_STATUS);
+        if (wolStatus != null) {
+            pendingWolStatus = wolStatus;
+            pendingWolGeneration = NodeControlAccessibilityService.wolGeneration();
+            finishPendingWolAfterHomeDraw();
+            intent.removeExtra(EXTRA_WOL_STATUS);
+        }
+        intent.removeExtra(EXTRA_FORCE_HOME);
+    }
+
+    private String wolStatusMessage(String status) {
+        if ("SENT".equals(status)) return "PiizaBus uyandırma paketi gönderildi";
+        if ("READY".equals(status)) return "Keenetic WOL bağlantısı hazır";
+        if ("LOGIN_REQUIRED".equals(status)) return "Keenetic oturumu gerekli";
+        if ("CLOUD_OFFLINE".equals(status)) return "Keenetic Cloud erişilemiyor";
+        if ("ROUTER_OFFLINE".equals(status)) return "Keenetic router çevrimdışı";
+        if ("DEVICE_LIST_UNAVAILABLE".equals(status)) return "Keenetic cihaz listesi açılamadı";
+        if ("DEVICE_NOT_FOUND".equals(status)) return "PiizaBus Keenetic listesinde bulunamadı";
+        if ("WOL_BUTTON_UNAVAILABLE".equals(status)) return "Keenetic WOL düğmesi bulunamadı";
+        if ("HEADLESS_UNAVAILABLE".equals(status)) return "Görünmez Keenetic ekranı başlatılamadı";
+        if ("INVALID_CONFIG".equals(status)) return "Keenetic cihaz ayarı geçersiz";
+        if ("INVALID_ARGUMENT".equals(status)) return "Keenetic WOL isteği geçersiz";
+        if ("FAILED".equals(status)) return "Keenetic WOL beklenmedik biçimde durdu";
+        return "Keenetic WOL tamamlanamadı: " + status;
     }
 
     @Override protected void onPause() {
@@ -174,7 +210,26 @@ public final class MainActivity extends Activity {
 
     @Override public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) hideSystemBars();
+        if (hasFocus) {
+            hideSystemBars();
+            finishPendingWolAfterHomeDraw();
+        }
+    }
+
+    private void finishPendingWolAfterHomeDraw() {
+        if (pendingWolStatus == null || !hasWindowFocus()) return;
+        final String status = pendingWolStatus;
+        final int generation = pendingWolGeneration;
+        final View decor = getWindow().getDecorView();
+        decor.postOnAnimation(() -> decor.postDelayed(() -> {
+            if (!hasWindowFocus() || !status.equals(pendingWolStatus) ||
+                    generation != pendingWolGeneration) return;
+            pendingWolStatus = null;
+            pendingWolGeneration = -1;
+            if (NodeControlAccessibilityService.finishWol(generation)) {
+                toast(wolStatusMessage(status));
+            }
+        }, 350L));
     }
 
     @Override public void onConfigurationChanged(Configuration configuration) {
@@ -559,6 +614,7 @@ public final class MainActivity extends Activity {
         final List<String> rememberTexts = new ArrayList<String>();
         final List<Boolean> rememberDone = new ArrayList<Boolean>();
         final List<String> rememberFolders = new ArrayList<String>();
+        final List<String> rememberFolderCatalog = new ArrayList<String>();
         final List<AgendaEntry> holidayEntries = new ArrayList<AgendaEntry>();
         final boolean showcaseMode;
         String diskPath = DISK_ROOT;
@@ -584,6 +640,8 @@ public final class MainActivity extends Activity {
         float pressGlow;
         String panelKind = "";
         final List<String> panelItems = new ArrayList<String>();
+        final List<String> panelShareTexts = new ArrayList<String>();
+        final List<String> panelShareFolders = new ArrayList<String>();
         long mailViewedAt;
         float burnX, burnY;
         long lastInteraction = System.currentTimeMillis();
@@ -788,19 +846,8 @@ public final class MainActivity extends Activity {
 
         void requestFastCleanup(final String packageName) {
             if (!isFastCleanupPackage(packageName)) return;
-            new Thread(() -> {
-                File queue = new File(getFilesDir(), "daak-node");
-                File temp = new File(queue, "cleanup.request.tmp");
-                File target = new File(queue, "cleanup.request");
-                try {
-                    if (!queue.exists() && !queue.mkdirs()) return;
-                    FileOutputStream output = new FileOutputStream(temp, false);
-                    output.write(packageName.getBytes("UTF-8"));
-                    output.flush(); output.getFD().sync(); output.close();
-                    if (target.exists() && !target.delete()) return;
-                    if (!temp.renameTo(target)) temp.delete();
-                } catch (Exception ignored) { temp.delete(); }
-            }, "node-app-cleaner").start();
+            new Thread(() -> RootActionQueue.request(MainActivity.this, packageName),
+                    "node-app-cleaner").start();
         }
 
         void playRotationTransition() {
@@ -905,13 +952,27 @@ public final class MainActivity extends Activity {
                     final ArrayList<String> activeTexts = new ArrayList<String>();
                     final ArrayList<Boolean> activeDone = new ArrayList<Boolean>();
                     final ArrayList<String> activeFolders = new ArrayList<String>();
+                    final ArrayList<String> folderCatalog = new ArrayList<String>();
+                    JSONArray remoteFolders = snapshot.optJSONArray("folders");
+                    if (remoteFolders != null) for (int i = 0; i < remoteFolders.length(); i++) {
+                        JSONObject remoteFolder = remoteFolders.optJSONObject(i);
+                        String rawFolder = remoteFolder == null ? "" : remoteFolder.optString("rawValue", "").trim();
+                        if (rawFolder.length() > 0 && !folderCatalog.contains(rawFolder)) folderCatalog.add(rawFolder);
+                    }
+                    if (folderCatalog.isEmpty()) {
+                        Collections.addAll(folderCatalog, "inbox", "tasks", "whatsapp", "mail", "notes");
+                    }
                     int open = 0;
                     if (items != null) for (int i = 0; i < items.length(); i++) {
                         JSONObject item = items.optJSONObject(i);
                         if (item == null || !item.isNull("deletedAt")) continue;
                         String text = item.optString("text", "").trim();
                         if (!item.optBoolean("isDone", false)) open++;
-                        if (text.length() > 0) active.add(item);
+                        if (text.length() > 0) {
+                            active.add(item);
+                            String itemFolder = rememberFolder(item);
+                            if (!folderCatalog.contains(itemFolder)) folderCatalog.add(itemFolder);
+                        }
                     }
                     Collections.sort(active, (left, right) -> {
                         boolean leftDone = left.optBoolean("isDone", false);
@@ -938,6 +999,7 @@ public final class MainActivity extends Activity {
                         rememberTexts.clear(); rememberTexts.addAll(activeTexts);
                         rememberDone.clear(); rememberDone.addAll(activeDone);
                         rememberFolders.clear(); rememberFolders.addAll(activeFolders);
+                        rememberFolderCatalog.clear(); rememberFolderCatalog.addAll(folderCatalog);
                         rememberLine = activeItems.isEmpty() ? "NOT YOK • TAP TO CAPTURE" : openFinal + " OPEN • " + activeItems.get(0).substring(2);
                         if (mode == INFO_PANEL && panelKind.equals("REMEMBER")) {
                             panelItems.clear(); panelItems.addAll(activeItems);
@@ -971,9 +1033,11 @@ public final class MainActivity extends Activity {
         }
 
         String rememberFolder(JSONObject item) {
-            String folder = item.optString("folder", "").toLowerCase(Locale.US);
+            String rawFolder = item.optString("folder", "").trim();
+            String folder = rawFolder.toLowerCase(Locale.US);
             if (folder.equals("inbox") || folder.equals("tasks") || folder.equals("whatsapp")
                     || folder.equals("mail") || folder.equals("notes")) return folder;
+            if (folder.startsWith("custom:") && rawFolder.length() > "custom:".length()) return rawFolder;
             String text = item.optString("text", "").toLowerCase(new Locale("tr", "TR"));
             if (text.startsWith("whatsapp •")) return "whatsapp";
             if (text.startsWith("mail •") || text.startsWith("gmail •")
@@ -986,12 +1050,33 @@ public final class MainActivity extends Activity {
             if (folder.equals("whatsapp")) return "WHATSAPP";
             if (folder.equals("mail")) return "MAIL";
             if (folder.equals("notes")) return "NOT";
+            if (folder.toLowerCase(Locale.US).startsWith("custom:")) {
+                String label = folder.substring("custom:".length()).trim();
+                return label.length() == 0 ? "KLASÖR" : label.toUpperCase(new Locale("tr", "TR"));
+            }
             return "GELEN";
         }
 
+        String[] rememberFolderValues(String excluded) {
+            ArrayList<String> values = new ArrayList<String>();
+            for (String folder : rememberFolderCatalog) {
+                if (folder.length() > 0 && (excluded == null || !folder.equals(excluded))) values.add(folder);
+            }
+            if (values.isEmpty() && excluded == null) {
+                Collections.addAll(values, "inbox", "tasks", "whatsapp", "mail", "notes");
+            }
+            return values.toArray(new String[values.size()]);
+        }
+
+        String[] rememberFolderLabels(String[] values) {
+            String[] labels = new String[values.length];
+            for (int i = 0; i < values.length; i++) labels[i] = folderLabel(values[i]);
+            return labels;
+        }
+
         void showRememberFolderPicker(final String id, final String text, final boolean done) {
-            final String[] labels = {"GELENLER", "YAPILACAKLAR", "WHATSAPP", "MAİLLER", "NOTLAR"};
-            final String[] values = {"inbox", "tasks", "whatsapp", "mail", "notes"};
+            final String[] values = rememberFolderValues(null);
+            final String[] labels = rememberFolderLabels(values);
             new AlertDialog.Builder(MainActivity.this)
                     .setTitle("REMEMBER // KLASÖRE TAŞI")
                     .setItems(labels, (d, which) -> mutateRememberFolder(id, text, done, values[which]))
@@ -1107,10 +1192,13 @@ public final class MainActivity extends Activity {
                         if (offerUndo) {
                             AlertDialog undo = new AlertDialog.Builder(MainActivity.this)
                                     .setTitle("REMEMBER // SİLİNDİ")
-                                    .setMessage(trimText(text, 120))
+                                    .setMessage(trimText(text, 120) + "\n\nGeri almak için 10 saniyen var.")
                                     .setPositiveButton("GERİ AL", (d, which) -> mutateRememberNote(id, "restore", text, done, false))
                                     .setNegativeButton("TAMAM", null).create();
                             showDaakDialog(undo);
+                            handler.postDelayed(() -> {
+                                if (!destroyed && undo.isShowing()) undo.dismiss();
+                            }, 10_000L);
                         }
                     });
                 } catch (Exception error) {
@@ -1710,8 +1798,8 @@ public final class MainActivity extends Activity {
         }
 
         String panelTitle() {
-            if (panelKind.equals("MAIL")) return "MAIL // READ ONLY";
-            if (panelKind.equals("WHATSAPP")) return "WHATSAPP // TASK ROUTER";
+            if (panelKind.equals("MAIL")) return "MAIL // PHONE ONLY";
+            if (panelKind.equals("WHATSAPP")) return "WHATSAPP // PHONE ONLY";
             if (panelKind.equals("MUSIC")) return "MUSIC // LOCAL + STREAM";
             if (panelKind.equals("POWER_LOLILE")) return "POWER // LOLILE WINDOWS";
             if (panelKind.equals("POWER_MAC")) return "POWER // MY MAC";
@@ -1719,9 +1807,9 @@ public final class MainActivity extends Activity {
         }
 
         String panelStatus() {
-            if (panelKind.equals("MAIL")) return "GMAIL + THUNDERBIRD • READ ONLY";
+            if (panelKind.equals("MAIL")) return "LOCAL VAULT • TAP ONE TO SHARE";
             if (panelKind.equals("WHATSAPP")) return NodeStore.whatsAppAutomationEnabled(MainActivity.this)
-                    ? "BALANCED DETECTOR • AUTO TASKS ON" : "AUTO TASKS OFF";
+                    ? "LOCAL TASKS • TAP ONE TO SHARE" : "LOCAL TASKS OFF";
             if (panelKind.equals("MUSIC")) return "ACTIVE SESSION • OLED LOCK PLAYER";
             if (panelKind.startsWith("POWER_")) return "TAILNET SSH • WAKE-ON-LAN";
             return rememberOpenCount + " AÇIK NOT • TAILNET ONLY";
@@ -1736,7 +1824,7 @@ public final class MainActivity extends Activity {
         }
 
         String panelSecondaryLabel() {
-            if (panelKind.equals("REMEMBER")) return "REFRESH";
+            if (panelKind.equals("REMEMBER")) return "FOLDERS";
             if (panelKind.equals("MUSIC")) return "NEXT";
             if (panelKind.startsWith("POWER_")) return "SHUTDOWN";
             return "FILTER";
@@ -1766,6 +1854,10 @@ public final class MainActivity extends Activity {
                 type(7.2f, soft, false); c.drawText(trimText(panelItems.get(i), 44), row.left + dp(36), y + dp(28), paint);
                 if (panelKind.equals("REMEMBER") && row.top >= listTop && row.bottom <= actionTop - dp(8))
                     addHit(row, "REMEMBER_ITEM:" + i);
+                else if ((panelKind.equals("MAIL") || panelKind.equals("WHATSAPP")) &&
+                        i < panelShareTexts.size() && panelShareTexts.get(i).length() > 0 &&
+                        row.top >= listTop && row.bottom <= actionTop - dp(8))
+                    addHit(row, "PRIVATE_ITEM:" + i);
             }
             c.restore();
 
@@ -1809,6 +1901,10 @@ public final class MainActivity extends Activity {
                 type(7, soft, false); c.drawText(trimText(panelItems.get(i), 72), row.left + dp(38), y + dp(25), paint);
                 if (panelKind.equals("REMEMBER") && row.top >= top + dp(12) && row.bottom <= bottom - dp(12))
                     addHit(row, "REMEMBER_ITEM:" + i);
+                else if ((panelKind.equals("MAIL") || panelKind.equals("WHATSAPP")) &&
+                        i < panelShareTexts.size() && panelShareTexts.get(i).length() > 0 &&
+                        row.top >= top + dp(12) && row.bottom <= bottom - dp(12))
+                    addHit(row, "PRIVATE_ITEM:" + i);
             }
             c.restore();
         }
@@ -2544,11 +2640,19 @@ public final class MainActivity extends Activity {
 
         void showWhatsAppPanel() {
             ArrayList<String> rows = new ArrayList<String>();
+            ArrayList<String> shares = new ArrayList<String>();
+            ArrayList<String> folders = new ArrayList<String>();
             rows.add(NodeStore.whatsAppBridgeRow(MainActivity.this));
+            shares.add(""); folders.add("");
             List<String> tasks = NodeStore.recentWhatsAppTasks(MainActivity.this, 7);
-            if (tasks.isEmpty()) rows.add("Henüz görev cümlesi yakalanmadı");
-            else rows.addAll(tasks);
-            openInfoPanel("WHATSAPP", rows);
+            if (tasks.isEmpty()) {
+                rows.add("Henüz yerel görev cümlesi yakalanmadı");
+                shares.add(""); folders.add("");
+            } else for (String task : tasks) {
+                rows.add("TELEFONDA • " + task);
+                shares.add("WhatsApp • " + task); folders.add("whatsapp");
+            }
+            openPrivateInfoPanel("WHATSAPP", rows, shares, folders);
         }
 
         void showWhatsAppSettings() {
@@ -2561,7 +2665,7 @@ public final class MainActivity extends Activity {
             boolean enabled = NodeStore.whatsAppAutomationEnabled(MainActivity.this);
             AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
                     .setTitle("AUTO TASKS // " + (enabled ? "ON" : "OFF"))
-                    .setMessage("Yalnız görev belirten bildirimler alınır; mesaj gönderilmez.")
+                    .setMessage("Yalnız görev belirten bildirimler telefona alınır. Mac'e veya ağa otomatik gönderilmez.")
                     .setView(input)
                     .setPositiveButton("KAYDET", (d, which) -> prefs.edit()
                             .putString("ignored_whatsapp_senders", input.getText().toString()).apply())
@@ -2667,7 +2771,21 @@ public final class MainActivity extends Activity {
                     if (online) {
                         try {
                             message = "DAAK LOLILE // ONLINE"; invalidate();
-                            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("http://" + host + ":17657/")));
+                            Intent panel = new Intent(Intent.ACTION_VIEW,
+                                    Uri.parse("http://" + host + ":17657/"));
+                            // Cromite's HTTPS-only mode blocks the private HTTP dashboard even
+                            // though it is reachable only through Tailscale. Stock Chrome keeps
+                            // this explicit private-network launch usable without weakening the
+                            // user's default browser policy.
+                            if (getPackageManager().getLaunchIntentForPackage("com.android.chrome") != null) {
+                                panel.setPackage("com.android.chrome");
+                            }
+                            try {
+                                startActivity(panel);
+                            } catch (RuntimeException browserError) {
+                                panel.setPackage(null);
+                                startActivity(panel);
+                            }
                         } catch (RuntimeException error) { toast("daakLOLILE paneli açılamadı"); }
                         return;
                     }
@@ -2687,12 +2805,20 @@ public final class MainActivity extends Activity {
 
         void showMailPanel() {
             ArrayList<String> rows = new ArrayList<String>(NodeStore.mailBridgeRows(MainActivity.this));
+            ArrayList<String> shares = new ArrayList<String>();
+            ArrayList<String> folders = new ArrayList<String>();
+            for (int i = 0; i < rows.size(); i++) { shares.add(""); folders.add(""); }
             List<String> messages = NodeStore.recentMail(MainActivity.this,
-                    System.currentTimeMillis() - 24L * 60L * 60L * 1000L, 8);
-            if (messages.isEmpty()) rows.add("Son 24 saatte yeni mail yok • rahat ol");
-            else rows.addAll(messages);
+                    System.currentTimeMillis() - 24L * 60L * 60L * 1000L, 20);
+            if (messages.isEmpty()) {
+                rows.add("Son 24 saatte yeni yerel mail yok • rahat ol");
+                shares.add(""); folders.add("");
+            } else for (String mail : messages) {
+                rows.add("TELEFONDA • " + mail);
+                shares.add("Mail • " + mail); folders.add("mail");
+            }
             mailViewedAt = System.currentTimeMillis();
-            openInfoPanel("MAIL", rows);
+            openPrivateInfoPanel("MAIL", rows, shares, folders);
         }
 
         void showMailSources() {
@@ -2807,6 +2933,14 @@ public final class MainActivity extends Activity {
 
         void showPowerPanel(String device) {
             ArrayList<String> rows = new ArrayList<String>();
+            if (device.equals("lolile")) {
+                String target = nodeConfig("keenetic_wol_device", "PiizaBus").trim();
+                rows.add("KEENETIC CLOUD RELAY • " + (target.length() == 0 ? "NOT CONFIGURED" : target));
+                rows.add("WAKE uses the signed-in Keenetic app; the router sends WOL inside the home LAN");
+                rows.add("SHUTDOWN requires biometric approval + key-only SSH");
+                openInfoPanel("POWER_LOLILE", rows);
+                return;
+            }
             String key = device.equals("lolile") ? "lolile_wol_mac" : "mac_wol_mac";
             String configured = nodeConfig(key, "").trim();
             rows.add(configured.length() == 0 ? "WOL MAC NOT CONFIGURED • config.properties" : "WOL MAC CONFIGURED • PRIVATE DEVICE CONFIG");
@@ -2817,8 +2951,48 @@ public final class MainActivity extends Activity {
 
         void runPower(String operation) {
             message = "POWER // " + operation.toUpperCase(Locale.US); invalidate();
-            runTermuxRaw("exec ~/.shortcuts/daak-power " + operation, true, null);
-            toast("Power command sent: " + operation);
+            if (operation.equals("lolile-wake")) {
+                if (canUseLocalLolileWol()) {
+                    runTermuxRaw("exec ~/.shortcuts/daak-power lolile-wake", true, null);
+                    toast("PiizaBus • yerel WOL arka planda gönderiliyor");
+                    return;
+                }
+                String target = nodeConfig("keenetic_wol_device", "PiizaBus").trim();
+                final boolean prepared = NodeControlAccessibilityService.startHeadlessWol(
+                        target, false);
+                if (!prepared) {
+                    toast("DAAK Home hareketi kapalı • Erişilebilirlik ayarını aç");
+                    openSettings(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+                    return;
+                }
+                new Thread(() -> {
+                    boolean queued = RootActionQueue.request(MainActivity.this, "keenetic-wol");
+                    if (!queued) runOnUiThread(() -> {
+                        NodeControlAccessibilityService.finishWol();
+                        toast("Keenetic WOL kuyruğa alınamadı");
+                    });
+                }, "node-keenetic-wol").start();
+            } else {
+                runTermuxRaw("exec ~/.shortcuts/daak-power " + operation, true, null);
+                toast("Power command sent: " + operation);
+            }
+        }
+
+        boolean canUseLocalLolileWol() {
+            String mac = nodeConfig("lolile_wol_mac", "").trim();
+            String configuredBroadcast = nodeConfig("lolile_wol_broadcast", "").trim();
+            if (!mac.matches("(?i)([0-9a-f]{2}[:-]){5}[0-9a-f]{2}") ||
+                    configuredBroadcast.length() == 0) return false;
+            try {
+                for (NetworkInterface network : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+                    if (!network.isUp() || network.isLoopback()) continue;
+                    for (InterfaceAddress address : network.getInterfaceAddresses()) {
+                        if (address.getBroadcast() != null && configuredBroadcast.equals(
+                                address.getBroadcast().getHostAddress())) return true;
+                    }
+                }
+            } catch (Exception ignored) { }
+            return false;
         }
 
         void confirmShutdown(String device) {
@@ -2899,14 +3073,54 @@ public final class MainActivity extends Activity {
         void openInfoPanel(String kind, List<String> rows) {
             panelKind = kind;
             panelItems.clear(); panelItems.addAll(rows);
+            panelShareTexts.clear(); panelShareFolders.clear();
             panelScroll = 0;
             mode = INFO_PANEL;
             if (!contentScroller.isFinished()) contentScroller.abortAnimation();
             invalidate();
         }
 
+        void openPrivateInfoPanel(String kind, List<String> rows, List<String> shares,
+                                  List<String> folders) {
+            openInfoPanel(kind, rows);
+            panelShareTexts.addAll(shares);
+            panelShareFolders.addAll(folders);
+            invalidate();
+        }
+
         void closeInfoPanel() {
-            panelKind = ""; panelItems.clear(); panelScroll = 0; mailViewedAt = 0L;
+            panelKind = ""; panelItems.clear(); panelShareTexts.clear();
+            panelShareFolders.clear(); panelScroll = 0; mailViewedAt = 0L;
+        }
+
+        void showPrivateItemMenu(final int index) {
+            if (index < 0 || index >= panelShareTexts.size() ||
+                    index >= panelShareFolders.size()) return;
+            final String text = panelShareTexts.get(index);
+            final String folder = panelShareFolders.get(index);
+            if (text.length() == 0 || folder.length() == 0) return;
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("YEREL KAYIT // TELEFONDA")
+                    .setMessage("Bu kayıt otomatik paylaşılmaz. Yalnız seçtiğin bu madde Tailnet üzerinden daakREMEMBER cihazlarına gönderilsin mi?\n\n" +
+                            trimText(text, 240))
+                    .setPositiveButton("AĞA GÖNDER", (d, which) -> sendPrivateItem(text, folder))
+                    .setNeutralButton("KOPYALA", (d, which) -> copyRememberText(text))
+                    .setNegativeButton("İPTAL", null).create();
+            showDaakDialog(dialog);
+        }
+
+        void sendPrivateItem(final String text, final String folder) {
+            message = "PRIVATE // SENDING SELECTED"; invalidate();
+            JSONArray labels = new JSONArray();
+            if (folder.equals("whatsapp")) labels.put("tasks");
+            RememberBridge.sendSelected(getApplicationContext(), text, folder, labels,
+                    sent -> handler.post(() -> {
+                        if (destroyed) return;
+                        message = sent ? "PRIVATE // SELECTED ITEM SENT" : "PRIVATE // NETWORK OFFLINE";
+                        invalidate();
+                        toast(sent ? "Yalnız seçtiğin kayıt ağa gönderildi" :
+                                "Gönderilemedi; kayıt yalnız telefonda kaldı");
+                    }));
         }
 
         void panelPrimary() {
@@ -2924,12 +3138,128 @@ public final class MainActivity extends Activity {
             else if (panelKind.equals("MUSIC")) skipMediaNext();
             else if (panelKind.equals("POWER_LOLILE")) confirmShutdown("lolile");
             else if (panelKind.equals("POWER_MAC")) confirmShutdown("mac");
-            else { refreshRemember(); handler.postDelayed(this::showRememberPanel, 650L); }
+            else showRememberFolderManager();
         }
 
         void panelTertiary() {
             if (panelKind.equals("MUSIC")) showMusicSources();
             else showMode(HOME);
+        }
+
+        void showRememberFolderManager() {
+            final String[] options = {"KLASÖR EKLE", "KLASÖR SİL", "YENİLE"};
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("REMEMBER // KLASÖRLER")
+                    .setItems(options, (d, which) -> {
+                        if (which == 0) showAddRememberFolder();
+                        else if (which == 1) showDeleteRememberFolderPicker();
+                        else { refreshRemember(); toast("Klasörler yenileniyor"); }
+                    })
+                    .setNegativeButton("KAPAT", null).create();
+            showDaakDialog(dialog);
+        }
+
+        void showAddRememberFolder() {
+            final EditText input = new EditText(MainActivity.this);
+            input.setSingleLine(true); input.setHint("Klasör adı");
+            styleInput(input);
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("REMEMBER // KLASÖR EKLE")
+                    .setView(input)
+                    .setPositiveButton("EKLE", (d, which) -> addRememberFolder(input.getText().toString()))
+                    .setNegativeButton("İPTAL", null).create();
+            showDaakDialog(dialog);
+        }
+
+        void addRememberFolder(String rawName) {
+            final String name = rawName.trim();
+            if (name.length() == 0 || name.length() > 40) {
+                toast("Klasör adı 1–40 karakter olmalı"); return;
+            }
+            new Thread(() -> {
+                try {
+                    JSONObject request = new JSONObject(); request.put("name", name);
+                    rememberRequest("POST", "/folders/add", request.toString().getBytes("UTF-8"));
+                    handler.post(() -> { if (!destroyed) { toast("Klasör eklendi"); refreshRemember(); } });
+                } catch (Exception error) {
+                    handler.post(() -> { if (!destroyed) toast("Klasör eklenemedi veya zaten var"); });
+                }
+            }, "node-remember-folder-add").start();
+        }
+
+        void showDeleteRememberFolderPicker() {
+            final String[] values = rememberFolderValues(null);
+            if (values.length <= 1) { toast("Son klasör silinemez"); return; }
+            final String[] labels = rememberFolderLabels(values);
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("REMEMBER // KLASÖR SİL")
+                    .setItems(labels, (d, which) -> prepareRememberFolderDelete(values[which]))
+                    .setNegativeButton("İPTAL", null).create();
+            showDaakDialog(dialog);
+        }
+
+        void prepareRememberFolderDelete(final String source) {
+            new Thread(() -> {
+                try {
+                    JSONObject snapshot = new JSONObject(new String(rememberRequest("GET", "/snapshot", null), "UTF-8"));
+                    JSONArray items = snapshot.optJSONArray("items");
+                    int activeCount = 0;
+                    if (items != null) for (int i = 0; i < items.length(); i++) {
+                        JSONObject item = items.optJSONObject(i);
+                        if (item == null || !item.isNull("deletedAt")) continue;
+                        boolean belongs = source.equals(rememberFolder(item));
+                        if (!belongs && source.equals("tasks")) {
+                            JSONArray labels = item.optJSONArray("labels");
+                            if (labels != null) for (int j = 0; j < labels.length(); j++) {
+                                if ("tasks".equals(labels.optString(j))) { belongs = true; break; }
+                            }
+                        }
+                        if (belongs) activeCount++;
+                    }
+                    final int count = activeCount;
+                    handler.post(() -> {
+                        if (destroyed) return;
+                        if (count == 0) confirmEmptyRememberFolderDelete(source);
+                        else showRememberFolderDestination(source, count);
+                    });
+                } catch (Exception error) {
+                    handler.post(() -> { if (!destroyed) toast("Mac/TailSync erişilemiyor"); });
+                }
+            }, "node-remember-folder-inspect").start();
+        }
+
+        void confirmEmptyRememberFolderDelete(final String source) {
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("REMEMBER // KLASÖR SİL")
+                    .setMessage(folderLabel(source) + " klasörü boş. Silinsin mi?")
+                    .setPositiveButton("SİL", (d, which) -> deleteRememberFolder(source, null))
+                    .setNegativeButton("İPTAL", null).create();
+            showDaakDialog(dialog);
+        }
+
+        void showRememberFolderDestination(final String source, int count) {
+            final String[] values = rememberFolderValues(source);
+            final String[] labels = rememberFolderLabels(values);
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("REMEMBER // MADDELERİ AKTAR")
+                    .setMessage(folderLabel(source) + " klasöründe " + count +
+                            " madde var. Hangi klasöre aktarmak istersin?")
+                    .setItems(labels, (d, which) -> deleteRememberFolder(source, values[which]))
+                    .setNegativeButton("İPTAL", null).create();
+            showDaakDialog(dialog);
+        }
+
+        void deleteRememberFolder(final String source, final String destination) {
+            new Thread(() -> {
+                try {
+                    JSONObject request = new JSONObject(); request.put("folder", source);
+                    if (destination != null) request.put("destination", destination);
+                    rememberRequest("POST", "/folders/delete", request.toString().getBytes("UTF-8"));
+                    handler.post(() -> { if (!destroyed) { toast("Klasör silindi"); refreshRemember(); } });
+                } catch (Exception error) {
+                    handler.post(() -> { if (!destroyed) toast("Klasör silinemedi; hedefi kontrol et"); });
+                }
+            }, "node-remember-folder-delete").start();
         }
 
         void showRememberCapture() {
@@ -2947,8 +3277,8 @@ public final class MainActivity extends Activity {
         void showNewRememberFolderPicker(final String rawText) {
             final String text = rawText.trim();
             if (text.length() == 0) { toast("Boş not kaydedilmedi"); return; }
-            final String[] labels = {"GELENLER", "YAPILACAKLAR", "NOTLAR", "WHATSAPP", "MAİLLER"};
-            final String[] values = {"inbox", "tasks", "notes", "whatsapp", "mail"};
+            final String[] values = rememberFolderValues(null);
+            final String[] labels = rememberFolderLabels(values);
             new AlertDialog.Builder(MainActivity.this)
                     .setTitle("REMEMBER // KAYIT KLASÖRÜ")
                     .setItems(labels, (d, which) -> addRememberNote(text, values[which]))
@@ -3108,6 +3438,7 @@ public final class MainActivity extends Activity {
             else if (a.equals("PANEL_TERTIARY")) panelTertiary();
             else if (a.equals("PANEL_CLOSE")) showMode(HOME);
             else if (a.startsWith("REMEMBER_ITEM:")) showRememberItemMenu(Integer.parseInt(a.substring(14)));
+            else if (a.startsWith("PRIVATE_ITEM:")) showPrivateItemMenu(Integer.parseInt(a.substring(13)));
             else if (a.equals("LOLILE_HUB")) guarded(() -> launchLolileHub());
             else if (a.equals("DICTATE")) startDictation();
             else if (a.equals("CHECK_UPDATE")) guarded(() -> maybeCheckUpdate(true));
