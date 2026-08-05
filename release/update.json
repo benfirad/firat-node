@@ -1,7 +1,7 @@
 {
-  "versionCode": 30,
-  "versionName": "7.0.0",
-  "apkUrl": "https://github.com/benfirad/daak-node/releases/download/v7.0.0/DAAK-NODE.apk",
-  "sha256": "47385dffbdbed628269c21888eed4c4825a36c104c4a1cbe102813f5f4c23f47",
-  "notes": "DAAK NODE v7, eski FIRAT NODE kimliğini tamamen kaldırıp yerel ayarları koruyan tek seferlik geçişi tamamlıyor. Sistem genelindeki görünmez alt-kenar hareketi her uygulamadan DAAK Home'a dönüyor. Keenetic WOL, resmi uygulamanın oturumunu tokenlara dokunmadan kısa ömürlü ve görünmez bir Android ekranında kullanıyor. Mail ve WhatsApp yakalamaları artık yalnız telefonda kalıyor; eski otomatik kuyruk temizleniyor ve sadece seçilip AĞA GÖNDER onayı verilen tek kayıt Tailnet'e çıkıyor."
+  "versionCode": 31,
+  "versionName": "7.0.1",
+  "apkUrl": "https://github.com/benfirad/daak-node/releases/download/v7.0.1/DAAK-NODE.apk",
+  "sha256": "66c7a9b11aef99f42c4bfb596222b0f8d7a7b18565b3dda6118aa090bb209a82",
+  "notes": "DAAK NODE v7.0.1, daakREMEMBER özel klasörlerini Android'den ekleyip silmeyi destekler. Dolu klasör silinirken maddelerin aktarılacağı hedef sorulur. Silinen maddeler için Geri Al düğmesi tam 10 saniye görünür; Mac hostu geri alınmayan silme kayıtlarını 24 saat sonra kalıcı olarak temizler."
 }

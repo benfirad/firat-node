@@ -35,8 +35,8 @@ pass "mail and WhatsApp remain phone-local until explicit per-item share"
 pass "clean APK build"
 
 aapt2_bin=${ANDROID_HOME:-$HOME/Library/Android/sdk}/build-tools/35.0.1/aapt2
-"$aapt2_bin" dump badging DAAK-NODE.apk | grep -q "versionCode='30'.*versionName='7.0.0'" || fail "APK version"
-pass "APK version 7.0.0 (30)"
+"$aapt2_bin" dump badging DAAK-NODE.apk | grep -q "versionCode='31'.*versionName='7.0.1'" || fail "APK version"
+pass "APK version 7.0.1 (31)"
 
 remote_test_dir=$(mktemp -d)
 javac --release 8 -d "$remote_test_dir" src/com/daak/node/RemoteRouting.java tests/RemoteRoutingTest.java
@@ -63,7 +63,7 @@ fi
 if command -v adb >/dev/null 2>&1; then
     device=${DAAK_DEVICE_SERIAL:-$(adb devices | awk '$2 == "device" {print $1; exit}')}
     if [ -n "$device" ]; then
-        adb -s "$device" shell dumpsys package com.daak.node | grep -q 'versionName=7.0.0' || fail "installed DAAK version"
+        adb -s "$device" shell dumpsys package com.daak.node | grep -q 'versionName=7.0.1' || fail "installed DAAK version"
         adb -s "$device" shell "su -c 'id'" | grep -q 'uid=0(root)' || fail "root"
         adb -s "$device" shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME | grep -q 'com.daak.node/.MainActivity' || fail "default launcher"
         adb -s "$device" shell settings get secure enabled_accessibility_services | grep -q 'com.daak.node/.NodeControlAccessibilityService' || fail "system-wide DAAK Home gesture"
@@ -119,4 +119,4 @@ if command -v adb >/dev/null 2>&1; then
     fi
 fi
 
-printf 'DAAK NODE v7.0.0 verification complete.\n'
+printf 'DAAK NODE v7.0.1 verification complete.\n'

@@ -102,7 +102,7 @@ import org.json.JSONObject;
 public final class MainActivity extends Activity {
     static final String EXTRA_FORCE_HOME = "com.daak.node.extra.FORCE_HOME";
     static final String EXTRA_WOL_STATUS = "com.daak.node.extra.WOL_STATUS";
-    private static final String BUILD_VERSION = "7.0.0";
+    private static final String BUILD_VERSION = "7.0.1";
     private static final String BOOK_READER_PACKAGE = "com.foobnix.pro.pdf.reader";
     private static final int TERMUX_PERMISSION_REQUEST = 73;
     private static final int CALENDAR_PERMISSION_REQUEST = 74;
@@ -614,6 +614,7 @@ public final class MainActivity extends Activity {
         final List<String> rememberTexts = new ArrayList<String>();
         final List<Boolean> rememberDone = new ArrayList<Boolean>();
         final List<String> rememberFolders = new ArrayList<String>();
+        final List<String> rememberFolderCatalog = new ArrayList<String>();
         final List<AgendaEntry> holidayEntries = new ArrayList<AgendaEntry>();
         final boolean showcaseMode;
         String diskPath = DISK_ROOT;
@@ -951,13 +952,27 @@ public final class MainActivity extends Activity {
                     final ArrayList<String> activeTexts = new ArrayList<String>();
                     final ArrayList<Boolean> activeDone = new ArrayList<Boolean>();
                     final ArrayList<String> activeFolders = new ArrayList<String>();
+                    final ArrayList<String> folderCatalog = new ArrayList<String>();
+                    JSONArray remoteFolders = snapshot.optJSONArray("folders");
+                    if (remoteFolders != null) for (int i = 0; i < remoteFolders.length(); i++) {
+                        JSONObject remoteFolder = remoteFolders.optJSONObject(i);
+                        String rawFolder = remoteFolder == null ? "" : remoteFolder.optString("rawValue", "").trim();
+                        if (rawFolder.length() > 0 && !folderCatalog.contains(rawFolder)) folderCatalog.add(rawFolder);
+                    }
+                    if (folderCatalog.isEmpty()) {
+                        Collections.addAll(folderCatalog, "inbox", "tasks", "whatsapp", "mail", "notes");
+                    }
                     int open = 0;
                     if (items != null) for (int i = 0; i < items.length(); i++) {
                         JSONObject item = items.optJSONObject(i);
                         if (item == null || !item.isNull("deletedAt")) continue;
                         String text = item.optString("text", "").trim();
                         if (!item.optBoolean("isDone", false)) open++;
-                        if (text.length() > 0) active.add(item);
+                        if (text.length() > 0) {
+                            active.add(item);
+                            String itemFolder = rememberFolder(item);
+                            if (!folderCatalog.contains(itemFolder)) folderCatalog.add(itemFolder);
+                        }
                     }
                     Collections.sort(active, (left, right) -> {
                         boolean leftDone = left.optBoolean("isDone", false);
@@ -984,6 +999,7 @@ public final class MainActivity extends Activity {
                         rememberTexts.clear(); rememberTexts.addAll(activeTexts);
                         rememberDone.clear(); rememberDone.addAll(activeDone);
                         rememberFolders.clear(); rememberFolders.addAll(activeFolders);
+                        rememberFolderCatalog.clear(); rememberFolderCatalog.addAll(folderCatalog);
                         rememberLine = activeItems.isEmpty() ? "NOT YOK • TAP TO CAPTURE" : openFinal + " OPEN • " + activeItems.get(0).substring(2);
                         if (mode == INFO_PANEL && panelKind.equals("REMEMBER")) {
                             panelItems.clear(); panelItems.addAll(activeItems);
@@ -1017,9 +1033,11 @@ public final class MainActivity extends Activity {
         }
 
         String rememberFolder(JSONObject item) {
-            String folder = item.optString("folder", "").toLowerCase(Locale.US);
+            String rawFolder = item.optString("folder", "").trim();
+            String folder = rawFolder.toLowerCase(Locale.US);
             if (folder.equals("inbox") || folder.equals("tasks") || folder.equals("whatsapp")
                     || folder.equals("mail") || folder.equals("notes")) return folder;
+            if (folder.startsWith("custom:") && rawFolder.length() > "custom:".length()) return rawFolder;
             String text = item.optString("text", "").toLowerCase(new Locale("tr", "TR"));
             if (text.startsWith("whatsapp •")) return "whatsapp";
             if (text.startsWith("mail •") || text.startsWith("gmail •")
@@ -1032,12 +1050,33 @@ public final class MainActivity extends Activity {
             if (folder.equals("whatsapp")) return "WHATSAPP";
             if (folder.equals("mail")) return "MAIL";
             if (folder.equals("notes")) return "NOT";
+            if (folder.toLowerCase(Locale.US).startsWith("custom:")) {
+                String label = folder.substring("custom:".length()).trim();
+                return label.length() == 0 ? "KLASÖR" : label.toUpperCase(new Locale("tr", "TR"));
+            }
             return "GELEN";
         }
 
+        String[] rememberFolderValues(String excluded) {
+            ArrayList<String> values = new ArrayList<String>();
+            for (String folder : rememberFolderCatalog) {
+                if (folder.length() > 0 && (excluded == null || !folder.equals(excluded))) values.add(folder);
+            }
+            if (values.isEmpty() && excluded == null) {
+                Collections.addAll(values, "inbox", "tasks", "whatsapp", "mail", "notes");
+            }
+            return values.toArray(new String[values.size()]);
+        }
+
+        String[] rememberFolderLabels(String[] values) {
+            String[] labels = new String[values.length];
+            for (int i = 0; i < values.length; i++) labels[i] = folderLabel(values[i]);
+            return labels;
+        }
+
         void showRememberFolderPicker(final String id, final String text, final boolean done) {
-            final String[] labels = {"GELENLER", "YAPILACAKLAR", "WHATSAPP", "MAİLLER", "NOTLAR"};
-            final String[] values = {"inbox", "tasks", "whatsapp", "mail", "notes"};
+            final String[] values = rememberFolderValues(null);
+            final String[] labels = rememberFolderLabels(values);
             new AlertDialog.Builder(MainActivity.this)
                     .setTitle("REMEMBER // KLASÖRE TAŞI")
                     .setItems(labels, (d, which) -> mutateRememberFolder(id, text, done, values[which]))
@@ -1153,10 +1192,13 @@ public final class MainActivity extends Activity {
                         if (offerUndo) {
                             AlertDialog undo = new AlertDialog.Builder(MainActivity.this)
                                     .setTitle("REMEMBER // SİLİNDİ")
-                                    .setMessage(trimText(text, 120))
+                                    .setMessage(trimText(text, 120) + "\n\nGeri almak için 10 saniyen var.")
                                     .setPositiveButton("GERİ AL", (d, which) -> mutateRememberNote(id, "restore", text, done, false))
                                     .setNegativeButton("TAMAM", null).create();
                             showDaakDialog(undo);
+                            handler.postDelayed(() -> {
+                                if (!destroyed && undo.isShowing()) undo.dismiss();
+                            }, 10_000L);
                         }
                     });
                 } catch (Exception error) {
@@ -1782,7 +1824,7 @@ public final class MainActivity extends Activity {
         }
 
         String panelSecondaryLabel() {
-            if (panelKind.equals("REMEMBER")) return "REFRESH";
+            if (panelKind.equals("REMEMBER")) return "FOLDERS";
             if (panelKind.equals("MUSIC")) return "NEXT";
             if (panelKind.startsWith("POWER_")) return "SHUTDOWN";
             return "FILTER";
@@ -3096,12 +3138,128 @@ public final class MainActivity extends Activity {
             else if (panelKind.equals("MUSIC")) skipMediaNext();
             else if (panelKind.equals("POWER_LOLILE")) confirmShutdown("lolile");
             else if (panelKind.equals("POWER_MAC")) confirmShutdown("mac");
-            else { refreshRemember(); handler.postDelayed(this::showRememberPanel, 650L); }
+            else showRememberFolderManager();
         }
 
         void panelTertiary() {
             if (panelKind.equals("MUSIC")) showMusicSources();
             else showMode(HOME);
+        }
+
+        void showRememberFolderManager() {
+            final String[] options = {"KLASÖR EKLE", "KLASÖR SİL", "YENİLE"};
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("REMEMBER // KLASÖRLER")
+                    .setItems(options, (d, which) -> {
+                        if (which == 0) showAddRememberFolder();
+                        else if (which == 1) showDeleteRememberFolderPicker();
+                        else { refreshRemember(); toast("Klasörler yenileniyor"); }
+                    })
+                    .setNegativeButton("KAPAT", null).create();
+            showDaakDialog(dialog);
+        }
+
+        void showAddRememberFolder() {
+            final EditText input = new EditText(MainActivity.this);
+            input.setSingleLine(true); input.setHint("Klasör adı");
+            styleInput(input);
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("REMEMBER // KLASÖR EKLE")
+                    .setView(input)
+                    .setPositiveButton("EKLE", (d, which) -> addRememberFolder(input.getText().toString()))
+                    .setNegativeButton("İPTAL", null).create();
+            showDaakDialog(dialog);
+        }
+
+        void addRememberFolder(String rawName) {
+            final String name = rawName.trim();
+            if (name.length() == 0 || name.length() > 40) {
+                toast("Klasör adı 1–40 karakter olmalı"); return;
+            }
+            new Thread(() -> {
+                try {
+                    JSONObject request = new JSONObject(); request.put("name", name);
+                    rememberRequest("POST", "/folders/add", request.toString().getBytes("UTF-8"));
+                    handler.post(() -> { if (!destroyed) { toast("Klasör eklendi"); refreshRemember(); } });
+                } catch (Exception error) {
+                    handler.post(() -> { if (!destroyed) toast("Klasör eklenemedi veya zaten var"); });
+                }
+            }, "node-remember-folder-add").start();
+        }
+
+        void showDeleteRememberFolderPicker() {
+            final String[] values = rememberFolderValues(null);
+            if (values.length <= 1) { toast("Son klasör silinemez"); return; }
+            final String[] labels = rememberFolderLabels(values);
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("REMEMBER // KLASÖR SİL")
+                    .setItems(labels, (d, which) -> prepareRememberFolderDelete(values[which]))
+                    .setNegativeButton("İPTAL", null).create();
+            showDaakDialog(dialog);
+        }
+
+        void prepareRememberFolderDelete(final String source) {
+            new Thread(() -> {
+                try {
+                    JSONObject snapshot = new JSONObject(new String(rememberRequest("GET", "/snapshot", null), "UTF-8"));
+                    JSONArray items = snapshot.optJSONArray("items");
+                    int activeCount = 0;
+                    if (items != null) for (int i = 0; i < items.length(); i++) {
+                        JSONObject item = items.optJSONObject(i);
+                        if (item == null || !item.isNull("deletedAt")) continue;
+                        boolean belongs = source.equals(rememberFolder(item));
+                        if (!belongs && source.equals("tasks")) {
+                            JSONArray labels = item.optJSONArray("labels");
+                            if (labels != null) for (int j = 0; j < labels.length(); j++) {
+                                if ("tasks".equals(labels.optString(j))) { belongs = true; break; }
+                            }
+                        }
+                        if (belongs) activeCount++;
+                    }
+                    final int count = activeCount;
+                    handler.post(() -> {
+                        if (destroyed) return;
+                        if (count == 0) confirmEmptyRememberFolderDelete(source);
+                        else showRememberFolderDestination(source, count);
+                    });
+                } catch (Exception error) {
+                    handler.post(() -> { if (!destroyed) toast("Mac/TailSync erişilemiyor"); });
+                }
+            }, "node-remember-folder-inspect").start();
+        }
+
+        void confirmEmptyRememberFolderDelete(final String source) {
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("REMEMBER // KLASÖR SİL")
+                    .setMessage(folderLabel(source) + " klasörü boş. Silinsin mi?")
+                    .setPositiveButton("SİL", (d, which) -> deleteRememberFolder(source, null))
+                    .setNegativeButton("İPTAL", null).create();
+            showDaakDialog(dialog);
+        }
+
+        void showRememberFolderDestination(final String source, int count) {
+            final String[] values = rememberFolderValues(source);
+            final String[] labels = rememberFolderLabels(values);
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("REMEMBER // MADDELERİ AKTAR")
+                    .setMessage(folderLabel(source) + " klasöründe " + count +
+                            " madde var. Hangi klasöre aktarmak istersin?")
+                    .setItems(labels, (d, which) -> deleteRememberFolder(source, values[which]))
+                    .setNegativeButton("İPTAL", null).create();
+            showDaakDialog(dialog);
+        }
+
+        void deleteRememberFolder(final String source, final String destination) {
+            new Thread(() -> {
+                try {
+                    JSONObject request = new JSONObject(); request.put("folder", source);
+                    if (destination != null) request.put("destination", destination);
+                    rememberRequest("POST", "/folders/delete", request.toString().getBytes("UTF-8"));
+                    handler.post(() -> { if (!destroyed) { toast("Klasör silindi"); refreshRemember(); } });
+                } catch (Exception error) {
+                    handler.post(() -> { if (!destroyed) toast("Klasör silinemedi; hedefi kontrol et"); });
+                }
+            }, "node-remember-folder-delete").start();
         }
 
         void showRememberCapture() {
@@ -3119,8 +3277,8 @@ public final class MainActivity extends Activity {
         void showNewRememberFolderPicker(final String rawText) {
             final String text = rawText.trim();
             if (text.length() == 0) { toast("Boş not kaydedilmedi"); return; }
-            final String[] labels = {"GELENLER", "YAPILACAKLAR", "NOTLAR", "WHATSAPP", "MAİLLER"};
-            final String[] values = {"inbox", "tasks", "notes", "whatsapp", "mail"};
+            final String[] values = rememberFolderValues(null);
+            final String[] labels = rememberFolderLabels(values);
             new AlertDialog.Builder(MainActivity.this)
                     .setTitle("REMEMBER // KAYIT KLASÖRÜ")
                     .setItems(labels, (d, which) -> addRememberNote(text, values[which]))
