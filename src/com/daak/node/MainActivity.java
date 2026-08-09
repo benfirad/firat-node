@@ -102,7 +102,9 @@ import org.json.JSONObject;
 public final class MainActivity extends Activity {
     static final String EXTRA_FORCE_HOME = "com.daak.node.extra.FORCE_HOME";
     static final String EXTRA_WOL_STATUS = "com.daak.node.extra.WOL_STATUS";
-    private static final String BUILD_VERSION = "7.0.1";
+    private static final String BUILD_VERSION = "7.1.0";
+    private static final String CROSSTALK_PACKAGE = "com.buildwithparallel.crosstalk";
+    private static final String CROSSTALK_URL = "http://localhost:8000";
     private static final String BOOK_READER_PACKAGE = "com.foobnix.pro.pdf.reader";
     private static final int TERMUX_PERMISSION_REQUEST = 73;
     private static final int CALENDAR_PERMISSION_REQUEST = 74;
@@ -550,6 +552,20 @@ public final class MainActivity extends Activity {
         catch (RuntimeException error) { toast("Uygulama açılamadı"); }
     }
 
+    private void launchCrosstalk() {
+        if (getPackageManager().getLaunchIntentForPackage(CROSSTALK_PACKAGE) != null) {
+            launchPackage(CROSSTALK_PACKAGE);
+            return;
+        }
+        Intent local = new Intent(Intent.ACTION_VIEW, Uri.parse(CROSSTALK_URL));
+        try {
+            startActivity(local);
+            if (nodeView != null) nodeView.message = "CROSSTALK // BROWSER FALLBACK";
+        } catch (RuntimeException error) {
+            toast("Crosstalk Android uygulaması veya tarayıcı bulunamadı");
+        }
+    }
+
     private void openSettings(String action) {
         try { startActivity(new Intent(action)); }
         catch (RuntimeException error) {
@@ -621,7 +637,8 @@ public final class MainActivity extends Activity {
         int mode = HOME;
         String query = "";
         String meshIp = "CHECKING", macState = "CHECKING", diskState = "CHECKING";
-        String sshState = "CHECKING", message = "DAAK NODE V" + BUILD_VERSION + " READY";
+        String sshState = "CHECKING", crosstalkState = "CHECKING",
+                message = "DAAK NODE V" + BUILD_VERSION + " READY";
         String weather = "TAP TO ENABLE", weatherDetails = "", agendaOne = "Calendar permission required", agendaTwo = "";
         String mailLine = "Connect Thunderbird + notification access";
         String whatsAppLine = "Görev bildirimi bekleniyor";
@@ -879,11 +896,13 @@ public final class MainActivity extends Activity {
                     final String mac = canConnect(nodeConfig("mac_host", "mac"), 22) ? "ONLINE" : "OFFLINE";
                     final String disk = canConnect(nodeConfig("lolile_host", "lolile"), 445) ? "ONLINE" : "OFFLINE";
                     final String ssh = canConnect("127.0.0.1", 8022) ? "READY" : "STOPPED";
+                    final String crosstalk = canConnect("127.0.0.1", 8000) ? "ONLINE" : "OFFLINE";
                     handler.post(new Runnable() {
                         @Override public void run() {
                             statusRefreshRunning = false;
                             if (destroyed) return;
                             meshIp = ip; macState = mac; diskState = disk; sshState = ssh;
+                            crosstalkState = crosstalk;
                             rooted = new File("/sbin/su").exists() || new File("/system/bin/su").exists();
                             if (System.currentTimeMillis() >= vaultUnlockedUntil) vaultUnlocked = false;
                             updateMailLine();
@@ -1662,7 +1681,7 @@ public final class MainActivity extends Activity {
             type(9, mint, false);
             c.drawText("MESH  " + displayMesh(), left + dp(14), dp(108), paint);
             c.drawText("MAC " + macState + "  •  LOLILE " + diskState, left + dp(14), dp(129), paint);
-            c.drawText("SSHD " + sshState + "  •  ROOT " + (rooted ? "YES" : "NO"), left + dp(14), dp(150), paint);
+            c.drawText("SSH " + sshState + " • CT " + crosstalkState + " • ROOT " + (rooted ? "YES" : "NO"), left + dp(14), dp(150), paint);
             type(6.5f, soft, true); c.drawText("> " + trimText(message, 43), left + dp(14), dp(169), paint);
 
             type(7, mintDim, true); c.drawText("// WORKSPACE", left, dp(197), paint);
@@ -1717,7 +1736,7 @@ public final class MainActivity extends Activity {
             box(c, terminal, 14, panel, line); type(7, mintDim, true); c.drawText("// LIVE CONTROL", x1 + dp(12), top + dp(20), paint);
             type(8, mint, false); c.drawText("MESH  " + displayMesh(), x1 + dp(12), top + dp(45), paint);
             c.drawText("MAC " + macState + " • LOLILE " + diskState, x1 + dp(12), top + dp(67), paint);
-            c.drawText("SSHD " + sshState + " • ROOT " + (rooted ? "YES" : "NO"), x1 + dp(12), top + dp(89), paint);
+            c.drawText("SSH " + sshState + " • CT " + crosstalkState + " • ROOT " + (rooted ? "YES" : "NO"), x1 + dp(12), top + dp(89), paint);
             type(6.2f, soft, true); c.drawText("> " + trimText(message, 34), x1 + dp(12), top + dp(112), paint);
 
             float tileTop = dp(199), tileH = (bottom - tileTop - gap) / 2f, tileW = (col - gap) / 2f;
@@ -1915,7 +1934,7 @@ public final class MainActivity extends Activity {
                     {"CODEX", "ÇALIŞMA ALANI SEÇ", "CODEX"}, {"LOLILE", "KUREK / SMB3", "DISK"},
                     {"REM", "DAAK REMEMBER", "REMEMBER"}, {"RM-OS", "OBSIDIAN VAULT", "RMOS"},
                     {"SEC", "BIOMETRICS", "SET:SECURITY"}, {"SYS", "ANDROID SETTINGS", "SET:SYSTEM"},
-                    {"VPN", "TAILSCALE", "PKG:com.tailscale.ipn"}, {"KEY", "KEY MAPPER", "PKG:io.github.sds100.keymapper"}
+                    {"VPN", "TAILSCALE", "PKG:com.tailscale.ipn"}, {"NLS", "NOTIFY ACCESS", "SET:MAILACCESS"}
             };
             float colW = (right - left - gap * 3f) / 4f, rowH = (bottom - top - gap) / 2f;
             for (int i = 0; i < cards.length; i++) {
@@ -1931,7 +1950,7 @@ public final class MainActivity extends Activity {
                     {"VPN", "TAILSCALE", "PKG:com.tailscale.ipn"}, {"PC", "DAAK LOLILE", "LOLILE_HUB"}, {"PIN", "PINNED APPS", "PINS"}, {"KEY", "KEYBOARD", "SET:INPUT"},
                     {"SEC", "BIOMETRICS", "SET:SECURITY"}, {"WA", "WHATSAPP TASKS", "WHATSAPP"}, {"MIC", "DAAK INBOX", "DICTATE"}, {"UP", "UPDATE", "CHECK_UPDATE"},
                     {"ALM", "FOSSIFY CLOCK", "PKG:org.fossify.clock"}, {"ZZZ", "SLEEP TRACKER", "PKG:hu.vmiklos.plees_tracker"},
-                    {"SND", "NOTIFY SOUND", "SOUND"}, {"NLS", "NOTIFY ACCESS", "SET:MAILACCESS"}
+                    {"SND", "NOTIFY SOUND", "SOUND"}, {"MESH", "CROSSTALK", "CROSSTALK"}
             };
             float colW = (right - left - gap * 3f) / 4f, rowH = (bottom - top - gap * 2f) / 3f;
             for (int i = 0; i < tiles.length; i++) {
@@ -2127,7 +2146,7 @@ public final class MainActivity extends Activity {
             button(c, new RectF(left + half + gap, y, right, y + dp(58)), "SET", "ANDROID", "SYSTEM SETTINGS", false, "SET:SYSTEM");
             y += dp(66);
             button(c, new RectF(left, y, left + half, y + dp(58)), "NET", "TAILSCALE", displayMesh(), false, "PKG:com.tailscale.ipn");
-            button(c, new RectF(left + half + gap, y, right, y + dp(58)), "KEY", "KEY MAPPER", "BIXBY", false, "PKG:io.github.sds100.keymapper");
+            button(c, new RectF(left + half + gap, y, right, y + dp(58)), "NLS", "NOTIFY ACCESS", "MAIL / WHATSAPP", false, "SET:MAILACCESS");
         }
 
         void drawControl(Canvas c) {
@@ -2140,7 +2159,7 @@ public final class MainActivity extends Activity {
                     {"SEC", "BIOMETRICS", "SET:SECURITY"}, {"WA", "WHATSAPP TASKS", "WHATSAPP"},
                     {"UP", "UPDATE", "CHECK_UPDATE"}, {"MIC", "DAAK INBOX", "DICTATE"},
                     {"ALM", "FOSSIFY CLOCK", "PKG:org.fossify.clock"}, {"ZZZ", "SLEEP TRACKER", "PKG:hu.vmiklos.plees_tracker"},
-                    {"SND", "NOTIFY SOUND", "SOUND"}, {"NLS", "NOTIFY ACCESS", "SET:MAILACCESS"}
+                    {"SND", "NOTIFY SOUND", "SOUND"}, {"MESH", "CROSSTALK", "CROSSTALK"}
             };
             float half = (right - left - gap) / 2f, top = dp(124), h = dp(58);
             for (int i = 0; i < tiles.length; i++) {
@@ -3430,6 +3449,7 @@ public final class MainActivity extends Activity {
             else if (a.equals("PINS")) showPinnedManager();
             else if (a.equals("WHATSAPP")) showWhatsAppPanel();
             else if (a.equals("MUSIC")) showMusicPanel();
+            else if (a.equals("CROSSTALK")) launchCrosstalk();
             else if (a.equals("BOOKS")) openBookReader();
             else if (a.equals("POWER_LOLILE")) showPowerPanel("lolile");
             else if (a.equals("POWER_MAC")) showPowerPanel("mac");

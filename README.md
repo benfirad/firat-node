@@ -63,6 +63,7 @@ These are real screenshots from the SM-G965F. Public showcase mode replaces priv
 - Adaptive 2/3/5-minute Lolie reconnect backoff
 - A rotating 24-hour, 40-item local mail-metadata buffer; sender/subject summaries remain phone-only unless one row is explicitly selected and confirmed with `AĞA GÖNDER`
 - Native Tailnet integration with daakREMEMBER for reading, adding, editing, completing, deleting, undoing and moving notes between Inbox, Tasks, WhatsApp, Mail and Notes folders
+- First-class Crosstalk integration with live localhost health in the control plane and one-tap launch into the native Android companion; the Reticulum identity and backend remain private inside Termux
 - Dynamic daakREMEMBER folder management from Android, including custom-folder creation, safe empty-folder deletion and destination selection before deleting a non-empty folder
 - A ten-second undo window after Android deletion; the Mac host permanently purges the tombstone after 24 hours
 - Opt-in, keyword-limited WhatsApp notification-to-task capture stays in the phone-local vault and never sends messages
