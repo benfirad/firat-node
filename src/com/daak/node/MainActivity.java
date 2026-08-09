@@ -102,6 +102,7 @@ import org.json.JSONObject;
 public final class MainActivity extends Activity {
     static final String EXTRA_FORCE_HOME = "com.daak.node.extra.FORCE_HOME";
     static final String EXTRA_WOL_STATUS = "com.daak.node.extra.WOL_STATUS";
+    static final String EXTRA_CODEX_STANDALONE = "com.daak.node.extra.CODEX_STANDALONE";
     private static final String BUILD_VERSION = "7.1.0";
     private static final String CROSSTALK_PACKAGE = "com.buildwithparallel.crosstalk";
     private static final String CROSSTALK_URL = "http://localhost:8000";
@@ -160,8 +161,9 @@ public final class MainActivity extends Activity {
 
     private void handleHomeIntent(Intent intent) {
         if (intent == null) return;
+        boolean launchStandaloneCodex = intent.getBooleanExtra(EXTRA_CODEX_STANDALONE, false);
         if (nodeView != null && (Intent.ACTION_MAIN.equals(intent.getAction()) ||
-                intent.getBooleanExtra(EXTRA_FORCE_HOME, false))) {
+                intent.getBooleanExtra(EXTRA_FORCE_HOME, false) || launchStandaloneCodex)) {
             pendingProtectedAction = null;
             if (biometricCancellation != null) {
                 biometricCancellation.cancel();
@@ -177,6 +179,11 @@ public final class MainActivity extends Activity {
             intent.removeExtra(EXTRA_WOL_STATUS);
         }
         intent.removeExtra(EXTRA_FORCE_HOME);
+        intent.removeExtra(EXTRA_CODEX_STANDALONE);
+        if (launchStandaloneCodex && nodeView != null) {
+            nodeView.showMode(NodeView.CODEX_VIEW);
+            nodeView.launchCodexWorkspace("standalone", "");
+        }
     }
 
     private String wolStatusMessage(String status) {

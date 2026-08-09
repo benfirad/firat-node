@@ -46,6 +46,7 @@ These are real screenshots from the SM-G965F. Public showcase mode replaces priv
 - Text-first app drawer, searchable launcher and built-in help/control screens
 - Biometric/device-credential vault for Codex, SSH and Debian actions
 - Direct Codex CLI control over Termux + SSH (no API integration in the launcher)
+- The Galaxy S9/S9+ Bixby key opens a biometric-gated, projectless Codex CLI session directly
 - Safe terminal link bridge through `daak-open`/`open`, restricted to HTTP(S) and routed to Cromite by default
 - Native DAAK Codex workspace screen for zero-context, RM-OS hub, phone-source and custom Mac paths
 - Tailnet-only Mac and Windows/Lolie status, SSH and navigable `smb://lolile/kurek` SMB3 workflows

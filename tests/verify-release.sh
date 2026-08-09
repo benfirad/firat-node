@@ -10,8 +10,13 @@ fail() { printf 'FAIL  %s\n' "$1" >&2; exit 1; }
 git diff --check
 pass "git diff hygiene"
 
-sh -n build-apk.sh tools/migrate-v7.sh companion/macos/daak-phone companion/magisk/daak-sshd-firewall.sh companion/magisk/daak-app-cleaner.sh companion/termux/daak-selftest companion/termux/keenetic-wol companion/termux/rm-os-sync-daemon companion/termux/rm-os-sync-boot tests/device-app-sweep.sh tests/device-ui-sweep.sh
+sh -n build-apk.sh tools/migrate-v7.sh companion/macos/daak-phone companion/magisk/daak-sshd-firewall.sh companion/magisk/daak-app-cleaner.sh companion/magisk/install-bixby-codex.sh companion/termux/daak-selftest companion/termux/keenetic-wol companion/termux/rm-os-sync-daemon companion/termux/rm-os-sync-boot tests/device-app-sweep.sh tests/device-ui-sweep.sh
 pass "shell syntax"
+
+grep -q 'android:canRequestFilterKeyEvents="true"' res/xml/node_control_accessibility.xml || fail "Bixby key event capability"
+grep -q 'KEYCODE_SAMSUNG_BIXBY = 1082' src/com/daak/node/NodeControlAccessibilityService.java || fail "Samsung Bixby key mapping"
+grep -q 'EXTRA_CODEX_STANDALONE' src/com/daak/node/MainActivity.java || fail "projectless Codex intent"
+pass "Bixby key opens projectless Codex through the biometric gate"
 
 python3 -c 'import ast, pathlib; [ast.parse(pathlib.Path(path).read_text()) for path in ("companion/termux/lolile-preview", "companion/termux/lolile-books-sync", "companion/termux/daak-airplay", "companion/termux/rm-os-sync-once")]'
 pass "Kurek and AirPlay bridge syntax"

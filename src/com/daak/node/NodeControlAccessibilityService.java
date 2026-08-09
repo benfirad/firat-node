@@ -12,6 +12,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
@@ -34,6 +35,10 @@ import java.util.List;
  */
 public final class NodeControlAccessibilityService extends AccessibilityService {
     private static final String TAG = "DAAK_CONTROL";
+    // Samsung's dedicated Bixby key is reported as keyCode 1082 and scanCode 703
+    // on the Exynos Galaxy S9/S9+. Match both values so firmware variants work.
+    private static final int KEYCODE_SAMSUNG_BIXBY = 1082;
+    private static final int SCANCODE_SAMSUNG_BIXBY = 703;
     private static NodeControlAccessibilityService active;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -66,7 +71,8 @@ public final class NodeControlAccessibilityService extends AccessibilityService 
         AccessibilityServiceInfo info = getServiceInfo();
         if (info != null) {
             info.flags |= AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS |
-                    AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
+                    AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS |
+                    AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS;
             info.packageNames = new String[]{"com.keenetic.kn"};
             setServiceInfo(info);
         }
@@ -96,6 +102,22 @@ public final class NodeControlAccessibilityService extends AccessibilityService 
     }
 
     @Override public void onInterrupt() { }
+
+    @Override protected boolean onKeyEvent(KeyEvent event) {
+        if (event == null || (event.getKeyCode() != KEYCODE_SAMSUNG_BIXBY &&
+                event.getScanCode() != SCANCODE_SAMSUNG_BIXBY)) return false;
+        if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+            Log.i(TAG, "Bixby key -> standalone Codex");
+            Intent codex = new Intent(this, MainActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK |
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP |
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    .putExtra(MainActivity.EXTRA_CODEX_STANDALONE, true);
+            startActivity(codex);
+        }
+        // Consume both down and up so Samsung/Bixby cannot also react.
+        return true;
+    }
 
     @Override public void onDestroy() {
         if (active == this) active = null;
