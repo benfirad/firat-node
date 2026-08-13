@@ -12,22 +12,38 @@ import android.webkit.MimeTypeMap;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.util.List;
 import java.util.Locale;
 
 public final class KurekFileProvider extends ContentProvider {
     public static final String AUTHORITY = "com.daak.node.kurek";
-    private static final File ROOT = new File("/sdcard/Download/DAAK-Kurek");
+    private static final File LOLILE_ROOT = new File("/sdcard/Download/DAAK-Kurek");
+    private static final File MYA_ROOT = new File("/sdcard/Download/DAAK-MYA");
 
     @Override public boolean onCreate() { return true; }
 
     private File resolve(Uri uri) throws FileNotFoundException {
-        String name = uri.getLastPathSegment();
+        List<String> segments = uri.getPathSegments();
+        String source;
+        String name;
+        if (segments.size() == 1) {
+            source = "lolile";
+            name = segments.get(0);
+        } else if (segments.size() == 2) {
+            source = segments.get(0);
+            name = segments.get(1);
+        } else {
+            throw new FileNotFoundException("Invalid disk file");
+        }
         if (name == null || name.length() == 0 || name.equals(".") || name.equals("..") ||
                 name.contains("/") || name.contains("\\") || name.indexOf('\0') >= 0) {
-            throw new FileNotFoundException("Invalid Kurek file");
+            throw new FileNotFoundException("Invalid disk file");
         }
         try {
-            File root = ROOT.getCanonicalFile();
+            File root;
+            if ("lolile".equals(source)) root = LOLILE_ROOT.getCanonicalFile();
+            else if ("mya".equals(source)) root = MYA_ROOT.getCanonicalFile();
+            else throw new FileNotFoundException("Unknown disk source");
             File file = new File(root, name).getCanonicalFile();
             if (!file.getParentFile().equals(root) || !file.isFile()) throw new FileNotFoundException(name);
             return file;

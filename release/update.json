@@ -1,7 +1,7 @@
 {
-  "versionCode": 31,
-  "versionName": "7.0.1",
-  "apkUrl": "https://github.com/benfirad/daak-node/releases/download/v7.0.1/DAAK-NODE.apk",
-  "sha256": "66c7a9b11aef99f42c4bfb596222b0f8d7a7b18565b3dda6118aa090bb209a82",
-  "notes": "DAAK NODE v7.0.1, daakREMEMBER özel klasörlerini Android'den ekleyip silmeyi destekler. Dolu klasör silinirken maddelerin aktarılacağı hedef sorulur. Silinen maddeler için Geri Al düğmesi tam 10 saniye görünür; Mac hostu geri alınmayan silme kayıtlarını 24 saat sonra kalıcı olarak temizler."
+  "versionCode": 35,
+  "versionName": "7.1.3",
+  "apkUrl": "https://github.com/benfirad/daak-node/releases/download/v7.1.3/DAAK-NODE.apk",
+  "sha256": "f5fca475c8f3793baea5d68d4b04f59c963a3058032570dc08e16349703f822a",
+  "notes": "DAAK NODE v7.1.3, FastDrop canlı durumunu ana ekrana geri getirir; boş alan, kuyruk ve saklanan dosya sayaçlarını gösterir. MYA-L11 cihaz, mail, dosya erişimi, gateway, konum gizliliği, güç koruma ve DAAK Find iyileştirmelerini birlikte içerir."
 }

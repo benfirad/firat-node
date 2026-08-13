@@ -1,0 +1,168 @@
+#!/data/data/com.termux/files/usr/bin/python
+from __future__ import annotations
+
+import base64
+import http.server
+import mimetypes
+import os
+import pathlib
+import re
+import secrets
+import shlex
+import subprocess
+import sys
+import threading
+import urllib.parse
+
+
+ROOT = "sftp://mya-l11/ServerShare"
+HOST = os.environ.get("DAAK_MYA_SSH_HOST", "mya-l11")
+REMOTE_ROOT = os.environ.get("DAAK_MYA_SHARE_ROOT", "/Users/mac/ServerShare")
+REMOTE_STAT = r"""
+import base64
+import pathlib
+import sys
+root = pathlib.Path(sys.argv[1]).resolve()
+relative = base64.urlsafe_b64decode(sys.argv[2].encode("ascii")).decode("utf-8")
+target = (root / relative).resolve()
+target.relative_to(root)
+if not target.is_file():
+    raise FileNotFoundError(relative)
+print(target.stat().st_size)
+"""
+REMOTE_READ = r"""
+import base64
+import pathlib
+import shutil
+import sys
+root = pathlib.Path(sys.argv[1]).resolve()
+relative = base64.urlsafe_b64decode(sys.argv[2].encode("ascii")).decode("utf-8")
+target = (root / relative).resolve()
+target.relative_to(root)
+if not target.is_file():
+    raise FileNotFoundError(relative)
+with target.open("rb") as source:
+    shutil.copyfileobj(source, sys.stdout.buffer, length=65536)
+"""
+
+
+def decode_file(value: str) -> tuple[str, str, str]:
+    try:
+        path = base64.b64decode(value, validate=True).decode("utf-8")
+    except Exception as error:
+        raise ValueError("invalid path") from error
+    if not path.startswith(ROOT + "/"):
+        raise ValueError("outside ServerShare")
+    parts = [part for part in path[len(ROOT) + 1 :].split("/") if part]
+    if not parts or any(part in (".", "..") or "\x00" in part for part in parts):
+        raise ValueError("unsafe path")
+    return "/".join(parts), "/".join(parts[:-1]), parts[-1]
+
+
+def remote_command(script: str, relative: str) -> str:
+    encoded = base64.urlsafe_b64encode(relative.encode("utf-8")).decode("ascii")
+    return "python3 -c {} {} {}".format(
+        shlex.quote(script), shlex.quote(REMOTE_ROOT), shlex.quote(encoded)
+    )
+
+
+def ssh_command(script: str, relative: str) -> list[str]:
+    return [
+        "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
+        "-o", "ServerAliveInterval=15", HOST, remote_command(script, relative),
+    ]
+
+
+def atomic_status(target: pathlib.Path, line: str) -> None:
+    temporary = target.with_name(target.name + f".{os.getpid()}.tmp")
+    temporary.write_text(line + "\n", encoding="utf-8")
+    temporary.replace(target)
+
+
+def main() -> int:
+    encoded = sys.argv[1] if len(sys.argv) > 1 else ""
+    request = sys.argv[2] if len(sys.argv) > 2 else "0"
+    if not re.fullmatch(r"[0-9]{1,20}", request):
+        request = "0"
+    status = pathlib.Path(f"/sdcard/Download/daak-mya-preview-{request}.txt")
+    try:
+        relative, _parent, name = decode_file(encoded)
+        stat = subprocess.run(ssh_command(REMOTE_STAT, relative), capture_output=True,
+                              text=True, timeout=12, check=True)
+        size = int(stat.stdout.strip())
+        route = "/p/" + secrets.token_urlsafe(24)
+        mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
+
+        class PreviewHandler(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def log_message(self, _format: str, *_args: object) -> None:
+                return
+
+            def valid_route(self) -> bool:
+                return urllib.parse.urlsplit(self.path).path == route
+
+            def send_preview_headers(self) -> bool:
+                if not self.valid_route():
+                    self.send_error(404)
+                    return False
+                self.send_response(200)
+                self.send_header("Content-Type", mime)
+                self.send_header("Content-Length", str(size))
+                self.send_header("Content-Disposition", "inline; filename*=UTF-8''" + urllib.parse.quote(name))
+                self.send_header("Cache-Control", "no-store, max-age=0")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                return True
+
+            def do_HEAD(self) -> None:
+                self.send_preview_headers()
+
+            def do_GET(self) -> None:
+                if not self.send_preview_headers():
+                    return
+                process = subprocess.Popen(
+                    ssh_command(REMOTE_READ, relative), stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL
+                )
+                try:
+                    assert process.stdout is not None
+                    while True:
+                        chunk = process.stdout.read(65536)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                finally:
+                    if process.poll() is None:
+                        process.terminate()
+                    try:
+                        process.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                    self.close_connection = True
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), PreviewHandler)
+        timer = threading.Timer(180, server.shutdown)
+        timer.daemon = True
+        timer.start()
+        atomic_status(status, f"[OK] http://127.0.0.1:{server.server_port}{route}")
+        try:
+            server.serve_forever(poll_interval=0.5)
+        finally:
+            timer.cancel()
+            server.server_close()
+        return 0
+    except Exception:
+        try:
+            atomic_status(status, "[ERR] preview unavailable")
+        except OSError:
+            pass
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

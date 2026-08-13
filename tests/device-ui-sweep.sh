@@ -110,25 +110,25 @@ panel_action() {
 home_action HOME 172 2840
 home_action APPS 446 2840
 home_action CODEX 720 2840
-home_action DISK 994 2840; back
+home_action DISK 994 2840
 home_action HELP 1268 2840
 home_action VAULT 1232 98; back
 home_action CONTROL 1360 98
 home_action CODEX 360 809
-home_action DISK 1080 809; back
+home_action DISK 1080 809
 home_action REMOTE 360 1018
-home_action LOCAL 1080 1018; back
+home_action LOCAL 1080 1018
 home_action MAIL 360 1302
 home_action WHATSAPP 1080 1302
 home_action REMEMBER 360 1505
-home_action WEATHER 1080 1505; back
+home_action WEATHER 1080 1505
 home_action CALENDAR 720 1708
 home_action MUSIC 258 2095
 home_action PKG:com.sec.android.app.camera 720 2095
 home_action PKG:io.github.yahiaangelo.filmsimulator.android 1182 2095
 home_action BOOKS 258 2497
 home_action REMEMBER 720 2497
-home_action RMOS 1182 2497; back
+home_action RMOS 1182 2497
 
 # Portrait control centre: all 12 tiles plus refresh.
 control_action PKG:com.tailscale.ipn 360 535
@@ -142,7 +142,7 @@ control_action DICTATE 1080 1228; back
 control_action PKG:org.fossify.clock 360 1459
 control_action PKG:hu.vmiklos.plees_tracker 1080 1459
 control_action SOUND 360 1690; back
-control_action SET:MAILACCESS 1080 1690
+control_action CROSSTALK 1080 1690
 control_action REFRESH 720 1942
 
 # Remote page, including both safe power panels. Shutdown confirmations are cancelled.
@@ -164,7 +164,7 @@ codex_action CODEX_CUSTOM 720 1523
 help_action SET:SECURITY 360 1963
 help_action SET:SYSTEM 1080 1963
 help_action PKG:com.tailscale.ipn 360 2194
-help_action PKG:io.github.sds100.keymapper 1080 2194
+help_action SET:MAILACCESS 1080 2194
 home; tap_expect DOCK APPS 446 2840; tap_expect APPS SEARCH 720 478; back; home
 
 # Intelligence-panel action rows.
@@ -199,7 +199,7 @@ tap_expect DOCK HELP 2636 1360; tap_expect HELP RMOS 2559 478; back; home
 tap_expect DOCK HELP 2636 1360; tap_expect HELP SET:SECURITY 402 994; home
 tap_expect DOCK HELP 2636 1360; tap_expect HELP SET:SYSTEM 1121 994; home
 tap_expect DOCK HELP 2636 1360; tap_expect HELP PKG:com.tailscale.ipn 1840 994; home
-tap_expect DOCK HELP 2636 1360; tap_expect HELP PKG:io.github.sds100.keymapper 2559 994; home
+tap_expect DOCK HELP 2636 1360; tap_expect HELP SET:MAILACCESS 2559 994; home
 
 $adb_bin -s "$device" shell wm set-user-rotation lock 0
 sleep 2

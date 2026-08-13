@@ -2,6 +2,9 @@
 # Use Tailnet DNS names or private Tailscale IP addresses.
 mac_host=your-mac.tailnet.example
 lolile_host=your-windows-node.tailnet.example
+# Optional private Mac storage node. File access uses the phone-local
+# key-only SSH alias `mya-l11`; no SMB password is copied into DAAK NODE.
+mya_host=mya-l11
 # Optional; defaults to mac_host. daakREMEMBER listens on Tailnet TCP 45831.
 remember_host=your-mac.tailnet.example
 

@@ -3,6 +3,7 @@ package com.daak.node;
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.Intent;
+import android.content.ComponentName;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -12,6 +13,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
@@ -34,6 +36,10 @@ import java.util.List;
  */
 public final class NodeControlAccessibilityService extends AccessibilityService {
     private static final String TAG = "DAAK_CONTROL";
+    // Samsung's dedicated Bixby key is reported as keyCode 1082 and scanCode 703
+    // on the Exynos Galaxy S9/S9+. Match both values so firmware variants work.
+    private static final int KEYCODE_SAMSUNG_BIXBY = 1082;
+    private static final int SCANCODE_SAMSUNG_BIXBY = 703;
     private static NodeControlAccessibilityService active;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -49,6 +55,11 @@ public final class NodeControlAccessibilityService extends AccessibilityService 
     private boolean wolButtonClicked;
     private String wolTarget;
     private long wolStartedAt;
+    private boolean simPinActive;
+    private boolean simPinToggleClicked;
+    private boolean simPinSubmitted;
+    private String simPinValue;
+    private long simPinStartedAt;
     private final Runnable wolPoll = new Runnable() {
         @Override public void run() {
             if (!wolActive) return;
@@ -66,8 +77,9 @@ public final class NodeControlAccessibilityService extends AccessibilityService 
         AccessibilityServiceInfo info = getServiceInfo();
         if (info != null) {
             info.flags |= AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS |
-                    AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
-            info.packageNames = new String[]{"com.keenetic.kn"};
+                    AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS |
+                    AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS;
+            info.packageNames = new String[]{"com.keenetic.kn", "com.android.settings"};
             setServiceInfo(info);
         }
         active = this;
@@ -76,19 +88,22 @@ public final class NodeControlAccessibilityService extends AccessibilityService 
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
-        if (!wolActive || event == null || event.getPackageName() == null ||
-                !"com.keenetic.kn".contentEquals(event.getPackageName())) return;
+        if (event == null || event.getPackageName() == null) return;
+        boolean keeneticEvent = wolActive && "com.keenetic.kn".contentEquals(event.getPackageName());
+        boolean simEvent = simPinActive && "com.android.settings".contentEquals(event.getPackageName());
+        if (!keeneticEvent && !simEvent) return;
         AccessibilityNodeInfo source = event.getSource();
         if (source == null) return;
-        Log.d(TAG, "Keenetic event class=" + event.getClassName() +
-                " source=" + source.getViewIdResourceName());
         AccessibilityNodeInfo root = source;
         AccessibilityNodeInfo parent;
         while ((parent = root.getParent()) != null) {
             if (root != source) root.recycle();
             root = parent;
         }
-        try { advanceHeadlessWol(root); }
+        try {
+            if (keeneticEvent) advanceHeadlessWol(root);
+            else advanceSimPinDisable(root, event);
+        }
         finally {
             if (root != source) root.recycle();
             source.recycle();
@@ -96,6 +111,22 @@ public final class NodeControlAccessibilityService extends AccessibilityService 
     }
 
     @Override public void onInterrupt() { }
+
+    @Override protected boolean onKeyEvent(KeyEvent event) {
+        if (event == null || (event.getKeyCode() != KEYCODE_SAMSUNG_BIXBY &&
+                event.getScanCode() != SCANCODE_SAMSUNG_BIXBY)) return false;
+        if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+            Log.i(TAG, "Bixby key -> standalone Codex");
+            Intent codex = new Intent(this, MainActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK |
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP |
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    .putExtra(MainActivity.EXTRA_CODEX_STANDALONE, true);
+            startActivity(codex);
+        }
+        // Consume both down and up so Samsung/Bixby cannot also react.
+        return true;
+    }
 
     @Override public void onDestroy() {
         if (active == this) active = null;
@@ -129,6 +160,134 @@ public final class NodeControlAccessibilityService extends AccessibilityService 
             service.handler.post(() -> service.beginHeadlessWol(target, dryRun));
         }
         return true;
+    }
+
+    static boolean startSimPinDisable(String pin) {
+        final NodeControlAccessibilityService service = active;
+        if (service == null || pin == null || !pin.matches("[0-9]{4,8}")) return false;
+        service.handler.post(() -> service.beginSimPinDisable(pin));
+        return true;
+    }
+
+    private void beginSimPinDisable(String pin) {
+        simPinActive = true;
+        simPinToggleClicked = false;
+        simPinSubmitted = false;
+        simPinValue = pin;
+        simPinStartedAt = System.currentTimeMillis();
+        writeSimPinResult("STARTED");
+        Intent settings = new Intent(Intent.ACTION_MAIN)
+                .setComponent(new ComponentName("com.android.settings",
+                        "com.android.settings.Settings$IccLockSettingsActivity"))
+                .addCategory(Intent.CATEGORY_DEFAULT)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        try { startActivity(settings); }
+        catch (Exception error) { completeSimPin("SETTINGS_UNAVAILABLE"); }
+    }
+
+    private void advanceSimPinDisable(AccessibilityNodeInfo root, AccessibilityEvent event) {
+        if (!simPinActive || root == null) return;
+        if (System.currentTimeMillis() - simPinStartedAt > 30000L) {
+            completeSimPin("TIMEOUT");
+            return;
+        }
+        if (event.getText() != null) {
+            String text = event.getText().toString();
+            if (text.contains("SIM PIN disabled") || text.contains("SIM PIN’i kaldırıldı") ||
+                    text.contains("Código PIN de la tarjeta SIM desactivado")) {
+                completeSimPin("DISABLED");
+                return;
+            }
+        }
+
+        AccessibilityNodeInfo toggle = (!simPinToggleClicked || simPinSubmitted) ? firstByAnyId(root,
+                "android:id/switch_widget", "com.android.settings:id/switch_widget",
+                "android:id/checkbox") : null;
+        if (!simPinToggleClicked && toggle != null) {
+            boolean checked = toggle.isChecked();
+            if (!checked) {
+                toggle.recycle();
+                completeSimPin("ALREADY_DISABLED");
+                return;
+            }
+            simPinToggleClicked = clickNode(toggle);
+            toggle.recycle();
+            return;
+        }
+
+        if (simPinToggleClicked && !simPinSubmitted) {
+            AccessibilityNodeInfo input = firstByAnyId(root,
+                    "com.android.settings:id/password_entry",
+                    "com.android.settings:id/pincode_edit_text",
+                    "android:id/edit");
+            if (input == null) input = firstEditable(root);
+            if (input == null) return;
+            Bundle args = new Bundle();
+            args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, simPinValue);
+            boolean filled = input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+            input.recycle();
+            if (!filled) return;
+            AccessibilityNodeInfo next = firstByAnyId(root,
+                    "com.android.settings:id/next_button", "android:id/button1");
+            if (next == null) next = exactAnyText(root, "Done", "OK", "Tamam", "Aceptar", "Hecho");
+            if (next != null) {
+                simPinSubmitted = clickNode(next);
+                next.recycle();
+                if (simPinSubmitted) simPinValue = null;
+            }
+            return;
+        }
+
+        if (simPinSubmitted && toggle != null) {
+            boolean disabled = !toggle.isChecked();
+            toggle.recycle();
+            if (disabled) completeSimPin("DISABLED");
+        }
+    }
+
+    private AccessibilityNodeInfo firstByAnyId(AccessibilityNodeInfo root, String... ids) {
+        for (String id : ids) {
+            AccessibilityNodeInfo found = firstById(root, id);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private AccessibilityNodeInfo exactAnyText(AccessibilityNodeInfo root, String... labels) {
+        for (String label : labels) {
+            AccessibilityNodeInfo found = exactText(root, label);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private AccessibilityNodeInfo firstEditable(AccessibilityNodeInfo root) {
+        if (root == null) return null;
+        if (root.isEditable()) return AccessibilityNodeInfo.obtain(root);
+        for (int i = 0; i < root.getChildCount(); i++) {
+            AccessibilityNodeInfo child = root.getChild(i);
+            if (child == null) continue;
+            AccessibilityNodeInfo answer = firstEditable(child);
+            child.recycle();
+            if (answer != null) return answer;
+        }
+        return null;
+    }
+
+    private void completeSimPin(String status) {
+        simPinActive = false;
+        simPinValue = null;
+        writeSimPinResult(status);
+        performGlobalAction(GLOBAL_ACTION_HOME);
+    }
+
+    private void writeSimPinResult(String status) {
+        File result = new File("/sdcard/Download/daak-sim-pin-result.txt");
+        try {
+            FileOutputStream output = new FileOutputStream(result, false);
+            output.write((status + "\n").getBytes(StandardCharsets.UTF_8));
+            output.close();
+        } catch (Exception error) { Log.w(TAG, "SIM PIN result unavailable", error); }
     }
 
     private void beginHeadlessWol(String target, boolean dryRun) {
@@ -337,7 +496,7 @@ public final class NodeControlAccessibilityService extends AccessibilityService 
         if (gestureStrip != null || wolMask != null || windows == null) return;
         gestureStrip = new BottomGestureView();
         WindowManager.LayoutParams params = baseParams(
-                WindowManager.LayoutParams.MATCH_PARENT, dp(10));
+                WindowManager.LayoutParams.MATCH_PARENT, dp(24));
         params.gravity = Gravity.BOTTOM;
         try {
             windows.addView(gestureStrip, params);
@@ -391,6 +550,7 @@ public final class NodeControlAccessibilityService extends AccessibilityService 
     private final class BottomGestureView extends View {
         private float downY;
         private long downAt;
+        private boolean triggered;
 
         BottomGestureView() {
             super(NodeControlAccessibilityService.this);
@@ -401,15 +561,25 @@ public final class NodeControlAccessibilityService extends AccessibilityService 
             if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
                 downY = event.getRawY();
                 downAt = event.getEventTime();
+                triggered = false;
                 return true;
             }
-            if (event.getActionMasked() == MotionEvent.ACTION_UP) {
-                float distance = downY - event.getRawY();
-                long duration = event.getEventTime() - downAt;
-                if (distance >= dp(42) && duration <= 1400L) returnHome();
-                return true;
+            if (event.getActionMasked() == MotionEvent.ACTION_MOVE ||
+                    event.getActionMasked() == MotionEvent.ACTION_UP ||
+                    event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                maybeReturnHome(event);
             }
             return true;
+        }
+
+        private void maybeReturnHome(MotionEvent event) {
+            if (triggered) return;
+            float distance = downY - event.getRawY();
+            long duration = event.getEventTime() - downAt;
+            if (distance < dp(42) || duration > 1400L) return;
+            triggered = true;
+            Log.i(TAG, "Bottom-edge swipe -> DAAK Home");
+            returnHome();
         }
     }
 

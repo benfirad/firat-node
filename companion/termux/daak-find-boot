@@ -1,0 +1,24 @@
+#!/data/data/com.termux/files/usr/bin/sh
+set -eu
+
+export HOME=/data/data/com.termux/files/home
+export PATH=/data/data/com.termux/files/usr/bin:/system/bin
+mkdir -p "$HOME/.cache"
+
+log="$HOME/.cache/daak-find.log"
+pid_file="$HOME/.local/state/daak-find/daemon.pid"
+if [ -r "$pid_file" ]; then
+    old_pid=$(sed -n '1p' "$pid_file")
+    case "$old_pid" in
+        ''|*[!0-9]*) ;;
+        *)
+            kill "$old_pid" 2>/dev/null || true
+            attempts=0
+            while kill -0 "$old_pid" 2>/dev/null && [ "$attempts" -lt 10 ]; do
+                sleep 1
+                attempts=$((attempts + 1))
+            done
+            ;;
+    esac
+fi
+nohup "$HOME/.local/bin/daak-find" daemon >>"$log" 2>&1 &
