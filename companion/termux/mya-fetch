@@ -1,0 +1,92 @@
+#!/data/data/com.termux/files/usr/bin/python
+from __future__ import annotations
+
+import base64
+import os
+import pathlib
+import shlex
+import subprocess
+import sys
+import tempfile
+
+
+ROOT = "sftp://mya-l11/ServerShare"
+HOST = os.environ.get("DAAK_MYA_SSH_HOST", "mya-l11")
+REMOTE_ROOT = os.environ.get("DAAK_MYA_SHARE_ROOT", "/Users/mac/ServerShare")
+DOWNLOADS = pathlib.Path("/sdcard/Download/DAAK-MYA")
+REMOTE_READ = r"""
+import base64
+import pathlib
+import shutil
+import sys
+root = pathlib.Path(sys.argv[1]).resolve()
+relative = base64.urlsafe_b64decode(sys.argv[2].encode("ascii")).decode("utf-8")
+target = (root / relative).resolve()
+target.relative_to(root)
+if not target.is_file():
+    raise FileNotFoundError(relative)
+with target.open("rb") as source:
+    shutil.copyfileobj(source, sys.stdout.buffer, length=65536)
+"""
+
+
+def decode_file(value: str) -> tuple[str, str]:
+    try:
+        path = base64.b64decode(value, validate=True).decode("utf-8")
+    except Exception as error:
+        raise ValueError("invalid path") from error
+    if not path.startswith(ROOT + "/"):
+        raise ValueError("outside ServerShare")
+    parts = [part for part in path[len(ROOT) + 1 :].split("/") if part]
+    if not parts or any(part in (".", "..") or "\x00" in part for part in parts):
+        raise ValueError("unsafe path")
+    return "/".join(parts), parts[-1]
+
+
+def remote_command(relative: str) -> str:
+    encoded = base64.urlsafe_b64encode(relative.encode("utf-8")).decode("ascii")
+    return "python3 -c {} {} {}".format(
+        shlex.quote(REMOTE_READ), shlex.quote(REMOTE_ROOT), shlex.quote(encoded)
+    )
+
+
+def atomic_status(target: pathlib.Path, line: str) -> None:
+    temporary = target.with_name(target.name + f".{os.getpid()}.tmp")
+    temporary.write_text(line + "\n", encoding="utf-8")
+    temporary.replace(target)
+
+
+def main() -> int:
+    encoded = sys.argv[1] if len(sys.argv) > 1 else ""
+    token = sys.argv[2] if len(sys.argv) > 2 else "0"
+    status = pathlib.Path(f"/sdcard/Download/daak-mya-fetch-{token}.txt")
+    try:
+        relative, name = decode_file(encoded)
+        DOWNLOADS.mkdir(parents=True, exist_ok=True)
+        local = DOWNLOADS / name
+        descriptor, temporary_name = tempfile.mkstemp(prefix=".daak-", suffix=".part", dir=DOWNLOADS)
+        os.close(descriptor)
+        temporary = pathlib.Path(temporary_name)
+        command = [
+            "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
+            "-o", "ServerAliveInterval=15", HOST, remote_command(relative),
+        ]
+        try:
+            with temporary.open("wb") as output:
+                subprocess.run(command, stdout=output, stderr=subprocess.PIPE, timeout=90, check=True)
+            if not temporary.is_file():
+                raise FileNotFoundError(name)
+            temporary.replace(local)
+        finally:
+            temporary.unlink(missing_ok=True)
+        if not local.is_file():
+            raise FileNotFoundError(name)
+        atomic_status(status, f"[OK] {local}")
+        return 0
+    except Exception:
+        atomic_status(status, "[ERR] download failed")
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

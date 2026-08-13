@@ -49,7 +49,8 @@ These are real screenshots from the SM-G965F. Public showcase mode replaces priv
 - The Galaxy S9/S9+ Bixby key opens a biometric-gated, projectless Codex CLI session directly
 - Safe terminal link bridge through `daak-open`/`open`, restricted to HTTP(S) and routed to Cromite by default
 - Native DAAK Codex workspace screen for zero-context, RM-OS hub, phone-source and custom Mac paths
-- Tailnet-only Mac and Windows/Lolie status, SSH and navigable `smb://lolile/kurek` SMB3 workflows
+- Tailnet-only Mac and Windows/Lolie status, SSH, navigable `smb://lolile/kurek`
+  SMB3 workflows, and key-only SSH streaming for `sftp://mya-l11/ServerShare`
 - Last-known-good Kurek index caching, so transient SMB retries never blank the disk interface
 - daakLOLILE private dashboard integration with a live availability check and Kurek/Remote offline recovery
 - One-tap Chrome Remote Desktop routing for configured hosts, with the official Google device list as a safe fallback
@@ -92,6 +93,9 @@ These are real screenshots from the SM-G965F. Public showcase mode replaces priv
 - Built-in notification-access shortcut plus safer mail-cache expiry that preserves messages arriving after a panel was viewed
 - Empty-folder-safe Kurek navigation and atomic file downloads that never expose partial SMB files
 - Fail-closed Magisk firewall: SSH 8022 and opt-in secure ADB 5555 accept only loopback and Tailscale `tun*` traffic
+- Root-controlled mobile gateway watchdog with cellular-registration checks, thermal hysteresis and unplugged low-battery protection
+- Opt-in 5% DAAK Power Reserve that requires a fresh BLE advertiser heartbeat, preserves Android's real fuel gauge and restores saved radios immediately when charging begins
+- Google-free DAAK Find records GPS-only fixes on the phone and exposes them solely through Tailnet SSH; the Mac keeps an AES-256/HMAC authenticated last-known cache whose key lives in Keychain
 - Chrome Remote Desktop from the phone to computers, plus account-free scrcpy control from the Mac to the phone over Tailscale
 - On-device `daak-selftest` command for sanitized firewall, remote ADB, Tailnet, Codex SSH, daakREMEMBER, Kurek TCP and browser-bridge diagnostics
 - S9 Lilac Purple OLED palette, animated press feedback and inertial app/disk/intelligence-panel scrolling
@@ -126,6 +130,17 @@ Mac-to-phone control uses Android's authorized ADB key plus the Tailnet-only fir
 Official YouTube Music and Spotify offline downloads remain inside their own applications. They are not copied into Auxio because those private app stores are encrypted and service-controlled; DAAK only provides shared playback controls and safe source switching.
 
 The free AirPlay bridge is intentionally local-network-only. `companion/termux/daak-airplay` discovers the DAAK Shairport receiver over mDNS and streams only the audio file explicitly selected in DAAK's music panel. `companion/macos/com.daak.shairport-sync.plist` keeps the receiver available after Mac login; no subscription, account or cloud relay is involved. The Mac's built-in AirPlay Receiver must stay disabled because both receivers use the classic RAOP port 5000.
+
+DAAK Power Reserve is disabled by default and cannot arm on battery percentage alone. It requires a root-owned enable flag plus a fresh, locally verified DAAK Find BLE heartbeat. At the 5% threshold it saves and disables Wi-Fi, cellular data, system location and the display while deliberately leaving Bluetooth available for controller-offloaded advertising. Missing BLE health, disarming, or reconnecting power restores the saved state. It never falsifies battery telemetry and cannot survive physical power loss; see [`docs/POWER_RESERVE.md`](docs/POWER_RESERVE.md).
+
+DAAK Find does not use Google Find Hub or a public tracking endpoint. The phone prefers hardware GPS and may retain a recent, explicitly approximate Android network-provider point while GPS is unavailable indoors. It stores history inside Termux private storage and the Mac fetches it over the existing Tailnet-only SSH path. Background polling stores an AES-256 encrypted last-known point using a random macOS Keychain secret; Apple Maps receives coordinates only after an explicit `daak-find open`. See [`docs/FIND.md`](docs/FIND.md).
+
+The optional location-privacy profile removes precise location from third-party
+Android apps without granting new permissions, blocks Google location AppOps,
+and keeps the Termux DAAK Find trust boundary intact. The Mac menu can
+optionally select the S9+ as its Tailscale exit node for IP-based geolocation;
+it remains off by default and does not spoof macOS Core Location. See
+[`docs/LOCATION_PRIVACY.md`](docs/LOCATION_PRIVACY.md).
 
 DAAK NODE 7 uses the canonical Android package `com.daak.node`. Devices upgrading from the pre-7 `com.firat.node` builds require the included root-assisted one-time migration because Android treats a package-name change as a new application. Runtime configuration lives only at `/sdcard/Download/daak-node/config.properties`.
 

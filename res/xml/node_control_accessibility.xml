@@ -6,5 +6,5 @@
     android:canRequestFilterKeyEvents="true"
     android:canRetrieveWindowContent="true"
     android:description="@string/control_service_description"
-    android:packageNames="com.keenetic.kn"
+    android:packageNames="com.keenetic.kn,com.android.settings"
     android:notificationTimeout="50" />

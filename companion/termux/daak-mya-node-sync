@@ -1,0 +1,72 @@
+#!/data/data/com.termux/files/usr/bin/sh
+set -u
+
+export HOME=/data/data/com.termux/files/home
+export PATH=/data/data/com.termux/files/usr/bin:/system/bin
+
+state_dir="$HOME/.local/state/daak-nodes/MYA-L11"
+vault_dir="/sdcard/Documents/DAAK-Vault/System Backups/DAAK-Nodes/MYA-L11"
+pid_file="$state_dir/daemon.pid"
+status_file="$state_dir/status.json"
+fastdrop_file="$state_dir/fastdrop-status.json"
+log_file="$HOME/.cache/daak-mya-node.log"
+
+mkdir -p "$state_dir" "$vault_dir" "$HOME/.cache"
+
+fetch_once() {
+    temp_file="$status_file.tmp"
+    fastdrop_temp="$fastdrop_file.tmp"
+    if ssh -o BatchMode=yes -o ConnectTimeout=8 mya-l11 \
+        'cat /Users/mac/ServerShare/Node/status.json' \
+        >"$temp_file" 2>>"$log_file" && \
+       grep -q '"schema"[[:space:]]*:[[:space:]]*"daak.node.status.v1"' "$temp_file"; then
+        if ssh -o BatchMode=yes -o ConnectTimeout=8 mya-l11 \
+            'cat /Users/mac/ServerShare/Node/fastdrop-status.json' \
+            >"$fastdrop_temp" 2>>"$log_file" && \
+           grep -q '"capacity_bytes"' "$fastdrop_temp"; then
+            mv "$fastdrop_temp" "$fastdrop_file"
+            cp "$fastdrop_file" "$vault_dir/fastdrop-status.json"
+        else
+            rm -f "$fastdrop_temp"
+        fi
+        mv "$temp_file" "$status_file"
+        cp "$status_file" "$vault_dir/status.json"
+        return 0
+    fi
+    rm -f "$temp_file" "$fastdrop_temp"
+    return 1
+}
+
+case "${1:-once}" in
+    once)
+        fetch_once
+        ;;
+    daemon)
+        printf '%s\n' "$$" >"$pid_file"
+        trap 'rm -f "$pid_file"; exit 0' HUP INT TERM EXIT
+        while :; do
+            fetch_once || true
+            sleep 60
+        done
+        ;;
+    status)
+        if [ -r "$status_file" ]; then
+            python -m json.tool "$status_file" 2>/dev/null || cat "$status_file"
+        else
+            printf '%s\n' "MYA-L11 durumu henüz alınmadı."
+            exit 1
+        fi
+        ;;
+    fastdrop)
+        if [ -r "$fastdrop_file" ]; then
+            python -m json.tool "$fastdrop_file" 2>/dev/null || cat "$fastdrop_file"
+        else
+            printf '%s\n' "FastDrop durumu henüz alınmadı."
+            exit 1
+        fi
+        ;;
+    *)
+        printf '%s\n' "Kullanım: daak-mya-node-sync {once|daemon|status|fastdrop}" >&2
+        exit 2
+        ;;
+esac

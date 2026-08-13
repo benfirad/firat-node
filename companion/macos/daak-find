@@ -1,0 +1,169 @@
+#!/bin/sh
+set -eu
+
+phone_host=${DAAK_FIND_HOST:-100.95.86.32}
+phone_port=${DAAK_FIND_PORT:-8022}
+remote_bin=${DAAK_FIND_REMOTE_BIN:-.local/bin/daak-find}
+cache_dir=${DAAK_FIND_CACHE_DIR:-"$HOME/Library/Application Support/DAAK Find"}
+cache_file="$cache_dir/latest.json.enc"
+cache_mac="$cache_file.hmac"
+key_service=com.daak.find.cache
+mode=${1:-show}
+
+find_python() {
+    for candidate in /usr/bin/python3 /opt/homebrew/bin/python3 /usr/local/bin/python3; do
+        [ ! -x "$candidate" ] || { printf '%s\n' "$candidate"; return 0; }
+    done
+    command -v python3
+}
+
+python_bin=$(find_python) || { echo "python3 is required" >&2; exit 127; }
+mkdir -p "$cache_dir"
+chmod 700 "$cache_dir"
+
+ssh_phone() {
+    /usr/bin/ssh -p "$phone_port" -o BatchMode=yes -o ConnectTimeout=8 \
+        -o ConnectionAttempts=1 -o ServerAliveInterval=10 \
+        -o StrictHostKeyChecking=yes "$phone_host" "$@"
+}
+
+cache_key() {
+    key=$(/usr/bin/security find-generic-password -a "$USER" -s "$key_service" -w 2>/dev/null || true)
+    if [ -z "$key" ]; then
+        key=$(/usr/bin/openssl rand -hex 32)
+        /usr/bin/security add-generic-password -a "$USER" -s "$key_service" -w "$key" -U >/dev/null
+    fi
+    printf '%s' "$key"
+}
+
+validate_json() {
+    "$python_bin" -c '
+import json, math, sys
+d=json.load(sys.stdin)
+lat=float(d["latitude"]); lon=float(d["longitude"]); acc=float(d["accuracyMeters"]); ts=int(d["capturedAt"])
+provider=d.get("provider")
+assert math.isfinite(lat) and -90 <= lat <= 90
+assert math.isfinite(lon) and -180 <= lon <= 180
+assert provider in ("gps", "network", "wifi-cache") and ts > 0
+assert math.isfinite(acc) and 0 <= acc <= (500 if provider == "gps" else 2000)
+print(json.dumps(d, ensure_ascii=False, separators=(",", ":")))
+'
+}
+
+encrypt_cache() {
+    key_file=$(mktemp "$cache_dir/.key.XXXXXX")
+    plain_file=$(mktemp "$cache_dir/.latest.XXXXXX")
+    encrypted_file="$cache_file.$$.tmp"
+    mac_file="$cache_mac.$$.tmp"
+    chmod 600 "$key_file" "$plain_file"
+    cache_key >"$key_file"
+    validate_json >"$plain_file"
+    /usr/bin/openssl enc -aes-256-cbc -pbkdf2 -salt -in "$plain_file" \
+        -out "$encrypted_file" -pass file:"$key_file"
+    key=$(cat "$key_file")
+    mac_key=$(printf 'DAAK-FIND-MAC:%s' "$key" | /usr/bin/openssl dgst -sha256 -r | awk '{print $1}')
+    /usr/bin/openssl dgst -sha256 -mac HMAC -macopt "hexkey:$mac_key" -r \
+        "$encrypted_file" | awk '{print $1}' >"$mac_file"
+    chmod 600 "$encrypted_file" "$mac_file"
+    mv -f "$encrypted_file" "$cache_file"
+    mv -f "$mac_file" "$cache_mac"
+    rm -f "$key_file" "$plain_file"
+}
+
+decrypt_cache() {
+    [ -r "$cache_file" ] && [ -r "$cache_mac" ] || return 1
+    key_file=$(mktemp "$cache_dir/.key.XXXXXX")
+    chmod 600 "$key_file"
+    cache_key >"$key_file"
+    key=$(cat "$key_file")
+    mac_key=$(printf 'DAAK-FIND-MAC:%s' "$key" | /usr/bin/openssl dgst -sha256 -r | awk '{print $1}')
+    expected_mac=$(cat "$cache_mac")
+    actual_mac=$(/usr/bin/openssl dgst -sha256 -mac HMAC -macopt "hexkey:$mac_key" -r \
+        "$cache_file" | awk '{print $1}')
+    if [ -z "$expected_mac" ] || [ "$actual_mac" != "$expected_mac" ]; then
+        rm -f "$key_file"
+        echo "DAAK Find cache authentication failed" >&2
+        return 1
+    fi
+    /usr/bin/openssl enc -d -aes-256-cbc -pbkdf2 -in "$cache_file" \
+        -pass file:"$key_file" 2>/dev/null
+    result=$?
+    rm -f "$key_file"
+    return "$result"
+}
+
+fetch_latest() {
+    refresh=${1:-yes}
+    if [ "$refresh" = yes ]; then
+        ssh_phone "$remote_bin latest --refresh --max-age 180" | encrypt_cache
+    else
+        ssh_phone "$remote_bin latest" | encrypt_cache
+    fi
+}
+
+show_json() {
+    "$python_bin" -c '
+import datetime as dt, json, sys, time, urllib.parse
+d=json.load(sys.stdin); age=max(0,int(time.time())-int(d["capturedAt"]))
+stamp=dt.datetime.fromtimestamp(int(d["capturedAt"]), dt.timezone.utc).astimezone()
+url="https://maps.apple.com/?"+urllib.parse.urlencode({"ll":f"{d['"'"'latitude'"'"']},{d['"'"'longitude'"'"']}","q":"DAAK Node"})
+provider=d.get("provider", "gps")
+label="YEREL YAKLAŞIK" if provider == "wifi-cache" else ("YAKLAŞIK" if provider == "network" else ("CANLI" if age <= 600 else "SON BİLİNEN"))
+print("DAAK NODE // "+label)
+print("Zaman: "+stamp.isoformat(timespec="seconds"))
+print(f"Yaş: {age} sn  •  Hassasiyet: ±{d['"'"'accuracyMeters'"'"']} m")
+source={"network":"Android ağ konumu","wifi-cache":"Yerel Wi-Fi çıpası (Google’sız)"}.get(provider,"GPS")
+print("Kaynak: "+source)
+print(f"Koordinat: {d['"'"'latitude'"'"']}, {d['"'"'longitude'"'"']}")
+print("Harita: "+url)
+'
+}
+
+case "$mode" in
+    poll)
+        fetch_latest no >/dev/null 2>&1 || exit 0
+        ;;
+    cached)
+        decrypt_cache | show_json
+        ;;
+    raw-cached)
+        decrypt_cache | validate_json
+        ;;
+    json)
+        fetch_latest || true
+        decrypt_cache
+        ;;
+    history)
+        count=${2:-100}
+        case "$count" in ''|*[!0-9]*) echo "history count must be numeric" >&2; exit 2 ;; esac
+        [ "$count" -le 10000 ] || count=10000
+        ssh_phone "$remote_bin history $count"
+        ;;
+    open)
+        fetch_latest || true
+        location_json=$(decrypt_cache)
+        printf '%s\n' "$location_json" | show_json
+        map_url=$(printf '%s\n' "$location_json" | "$python_bin" -c '
+import json,sys,urllib.parse
+d=json.load(sys.stdin)
+print("https://maps.apple.com/?"+urllib.parse.urlencode({"ll":f"{d['"'"'latitude'"'"']},{d['"'"'longitude'"'"']}","q":"DAAK Node"}))
+')
+        /usr/bin/open "$map_url"
+        ;;
+    selftest)
+        sample='{"schema":1,"device":"DAAK NODE / TEST","provider":"gps","latitude":40.1,"longitude":29.2,"accuracyMeters":8.0,"capturedAt":1700000000,"capturedAtIso":"2023-11-14T22:13:20+00:00"}'
+        printf '%s\n' "$sample" | encrypt_cache
+        decrypted=$(decrypt_cache)
+        printf '%s\n' "$decrypted" | validate_json >/dev/null
+        printf '%s\n' "$decrypted" | show_json >/dev/null
+        echo "DAAK Find Mac cache policy OK"
+        ;;
+    show)
+        fetch_latest || true
+        decrypt_cache | show_json
+        ;;
+    *)
+        echo "usage: daak-find [show|open|cached|raw-cached|json|history [count]|poll|selftest]" >&2
+        exit 2
+        ;;
+esac

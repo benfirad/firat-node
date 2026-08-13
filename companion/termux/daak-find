@@ -1,0 +1,7 @@
+#!/data/data/com.termux/files/usr/bin/sh
+set -eu
+
+export HOME=/data/data/com.termux/files/home
+export PATH=/data/data/com.termux/files/usr/bin:/system/bin
+
+exec "$HOME/.local/lib/daak-find/daak-find.py" "$@"

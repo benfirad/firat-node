@@ -52,6 +52,7 @@ import android.provider.CalendarContract;
 import android.provider.DocumentsContract;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
+import android.text.TextUtils;
 import android.net.Uri;
 import android.util.Base64;
 import android.util.Log;
@@ -103,7 +104,7 @@ public final class MainActivity extends Activity {
     static final String EXTRA_FORCE_HOME = "com.daak.node.extra.FORCE_HOME";
     static final String EXTRA_WOL_STATUS = "com.daak.node.extra.WOL_STATUS";
     static final String EXTRA_CODEX_STANDALONE = "com.daak.node.extra.CODEX_STANDALONE";
-    private static final String BUILD_VERSION = "7.1.0";
+    private static final String BUILD_VERSION = "7.1.3";
     private static final String CROSSTALK_PACKAGE = "com.buildwithparallel.crosstalk";
     private static final String CROSSTALK_URL = "http://localhost:8000";
     private static final String BOOK_READER_PACKAGE = "com.foobnix.pro.pdf.reader";
@@ -150,7 +151,28 @@ public final class MainActivity extends Activity {
             nodeView.reloadApps();
             nodeView.startUpdates();
         }
+        maybeRunSimPinRequest();
         maybeCheckUpdate(false);
+    }
+
+    private void maybeRunSimPinRequest() {
+        File request = new File("/sdcard/Download/.daak-sim-pin-request");
+        if (!request.isFile()) return;
+        String pin = "";
+        try {
+            BufferedReader reader = new BufferedReader(new FileReader(request));
+            pin = reader.readLine();
+            reader.close();
+        } catch (Exception ignored) { }
+        // Never leave the credential in shared storage after consuming it.
+        if (!request.delete()) request.deleteOnExit();
+        if (pin == null || !pin.matches("[0-9]{4,8}")) {
+            Toast.makeText(this, "SIM PIN isteği geçersiz", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (!NodeControlAccessibilityService.startSimPinDisable(pin)) {
+            Toast.makeText(this, "DAAK Home Gesture erişilebilirlik hizmetini aç", Toast.LENGTH_LONG).show();
+        }
     }
 
     @Override protected void onNewIntent(Intent intent) {
@@ -280,7 +302,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override public void onBackPressed() {
-        if (nodeView != null && nodeView.mode == NodeView.DISK_VIEW && !NodeView.DISK_ROOT.equals(nodeView.diskPath)) nodeView.diskUp();
+        if (nodeView != null && nodeView.mode == NodeView.DISK_VIEW && !nodeView.atDiskRoot()) nodeView.diskUp();
         else if (nodeView != null && nodeView.mode != NodeView.HOME) nodeView.showMode(NodeView.HOME);
         else if (nodeView == null) super.onBackPressed();
     }
@@ -610,7 +632,8 @@ public final class MainActivity extends Activity {
     private final class NodeView extends View {
         static final int HOME = 0, APPS = 1, HELP = 2, CONTROL = 3, DISK_VIEW = 4, REMOTE = 5,
                 CODEX_VIEW = 6, INFO_PANEL = 7;
-        static final String DISK_ROOT = "smb://lolile/kurek";
+        static final String LOLILE_DISK_ROOT = "smb://lolile/kurek";
+        static final String MYA_DISK_ROOT = "sftp://mya-l11/ServerShare";
         static final float TEXT_SCALE = 1.06f;
         // Samsung never published a CSS/Pantone value for S9 Lilac Purple. This palette is
         // sampled and OLED-adjusted from Samsung's launch render: true black remains black.
@@ -640,10 +663,15 @@ public final class MainActivity extends Activity {
         final List<String> rememberFolderCatalog = new ArrayList<String>();
         final List<AgendaEntry> holidayEntries = new ArrayList<AgendaEntry>();
         final boolean showcaseMode;
-        String diskPath = DISK_ROOT;
+        String diskSource = "lolile";
+        String diskPath = LOLILE_DISK_ROOT;
         int mode = HOME;
         String query = "";
-        String meshIp = "CHECKING", macState = "CHECKING", diskState = "CHECKING";
+        String meshIp = "CHECKING", macState = "CHECKING", diskState = "CHECKING", myaDiskState = "CHECKING";
+        String intelMacSummary = "MacBookPro16,1 • STATUS CHECKING";
+        String intelMacServices = "DEVICE SERVICES CHECKING";
+        String intelMailServices = "MAIL SERVICE CHECKING";
+        String fastDropLine = "DURUM BEKLENİYOR";
         String sshState = "CHECKING", crosstalkState = "CHECKING",
                 message = "DAAK NODE V" + BUILD_VERSION + " READY";
         String weather = "TAP TO ENABLE", weatherDetails = "", agendaOne = "Calendar permission required", agendaTwo = "";
@@ -712,6 +740,10 @@ public final class MainActivity extends Activity {
             contentScroller = new OverScroller(context);
             showcaseMode = "true".equalsIgnoreCase(nodeConfig("showcase_mode", "false"));
             setBackgroundColor(Color.BLACK);
+            String savedDiskSource = getSharedPreferences(NodeStore.PREFS, 0)
+                    .getString("disk_source", "lolile");
+            diskSource = "mya".equals(savedDiskSource) ? "mya" : "lolile";
+            diskPath = diskRoot();
             holidayCountry = getSharedPreferences(NodeStore.PREFS, 0).getString("holiday_country", "");
             reloadApps();
             refreshCalendar();
@@ -725,6 +757,19 @@ public final class MainActivity extends Activity {
         String displayRemember() { return showcaseMode ? "TAILSYNC • PRIVATE NOTES" : rememberLine; }
         String displayWeather() { return showcaseMode ? "LOCAL WEATHER • 21°C" : weather; }
         String displayAgenda() { return showcaseMode ? "TODAY • PRIVATE AGENDA READY" : agendaOne; }
+
+        String diskRoot() { return "mya".equals(diskSource) ? MYA_DISK_ROOT : LOLILE_DISK_ROOT; }
+        String diskLabel() { return "mya".equals(diskSource) ? "INTEL MAC // MYA-L11" : "LOLILE // KUREK"; }
+        String diskTransport() { return "mya".equals(diskSource) ? "SSH STREAM" : "SMB3 ENCRYPTED"; }
+        String diskConnectionState() { return "mya".equals(diskSource) ? myaDiskState : diskState; }
+        String diskShortcutPrefix() { return "mya".equals(diskSource) ? "mya" : "lolile"; }
+        String diskStatusPrefix() { return "daak-" + diskShortcutPrefix(); }
+        String diskCachePrefix() { return "disk_" + diskShortcutPrefix(); }
+        boolean atDiskRoot() { return diskRoot().equals(diskPath); }
+        boolean validDiskPath(String path) {
+            String root = diskRoot();
+            return path != null && (path.equals(root) || path.startsWith(root + "/"));
+        }
 
         void startUpdates() {
             if (destroyed) return;
@@ -894,6 +939,14 @@ public final class MainActivity extends Activity {
         void refreshStatus() {
             if (destroyed || statusRefreshRunning) return;
             statusRefreshRunning = true;
+            if (checkSelfPermission("com.termux.permission.RUN_COMMAND") == PackageManager.PERMISSION_GRANTED) {
+                runTermuxRaw("~/.shortcuts/mya-node-status > /sdcard/Download/.daak-mya-status.tmp " +
+                        "&& mv /sdcard/Download/.daak-mya-status.tmp /sdcard/Download/daak-mya-status.json",
+                        true, null);
+                runTermuxRaw("~/.local/bin/daak-mya-node-sync fastdrop > /sdcard/Download/.daak-fastdrop-status.tmp " +
+                        "&& mv /sdcard/Download/.daak-fastdrop-status.tmp /sdcard/Download/daak-fastdrop-status.json",
+                        true, null);
+            }
             long phase = ((System.currentTimeMillis() / 60_000L) * 7L) % 25L;
             burnX = dp(((phase % 5L) - 2L) * 2L);
             burnY = dp(((phase / 5L) - 2L) * 2L);
@@ -902,24 +955,133 @@ public final class MainActivity extends Activity {
                     final String ip = findMeshIp();
                     final String mac = canConnect(nodeConfig("mac_host", "mac"), 22) ? "ONLINE" : "OFFLINE";
                     final String disk = canConnect(nodeConfig("lolile_host", "lolile"), 445) ? "ONLINE" : "OFFLINE";
+                    final String myaDisk = canConnect(nodeConfig("mya_host", "mya-l11"), 22) ? "ONLINE" : "OFFLINE";
+                    final String intelSummary = readIntelMacSummary();
+                    final String intelServices = readIntelMacServices();
+                    final String intelMail = readIntelMailServices();
+                    final String fastDrop = readFastDropStatus();
                     final String ssh = canConnect("127.0.0.1", 8022) ? "READY" : "STOPPED";
                     final String crosstalk = canConnect("127.0.0.1", 8000) ? "ONLINE" : "OFFLINE";
                     handler.post(new Runnable() {
                         @Override public void run() {
                             statusRefreshRunning = false;
                             if (destroyed) return;
-                            meshIp = ip; macState = mac; diskState = disk; sshState = ssh;
+                            meshIp = ip; macState = mac; diskState = disk; myaDiskState = myaDisk; sshState = ssh;
+                            intelMacSummary = intelSummary;
+                            intelMacServices = intelServices;
+                            intelMailServices = intelMail;
+                            fastDropLine = fastDrop;
                             crosstalkState = crosstalk;
                             rooted = new File("/sbin/su").exists() || new File("/system/bin/su").exists();
                             if (System.currentTimeMillis() >= vaultUnlockedUntil) vaultUnlocked = false;
                             updateMailLine();
-                            if (disk.equals("ONLINE")) { diskRetryStep = 0; nextDiskRetry = 0; }
+                            if (("mya".equals(diskSource) ? myaDisk : disk).equals("ONLINE")) {
+                                diskRetryStep = 0; nextDiskRetry = 0;
+                            }
                             else scheduleDiskRetry();
                             invalidate();
                         }
                     });
                 }
             }, "node-status").start();
+        }
+
+        String readIntelMacSummary() {
+            File status = new File("/sdcard/Download/daak-mya-status.json");
+            if (!status.isFile()) return "MacBookPro16,1 • STATUS CHECKING";
+            try {
+                BufferedReader reader = new BufferedReader(new FileReader(status));
+                StringBuilder json = new StringBuilder();
+                String lineText;
+                while ((lineText = reader.readLine()) != null) json.append(lineText);
+                reader.close();
+                JSONObject data = new JSONObject(json.toString());
+                String model = data.optString("model", "MacBookPro16,1");
+                String power = data.optString("power_source", "POWER").toUpperCase(Locale.US);
+                int battery = data.optInt("battery_percent", -1);
+                int diskUsed = data.optInt("disk_used_percent", -1);
+                return model + " • " + power + (battery >= 0 ? " " + battery + "%" : "") +
+                        (diskUsed >= 0 ? " • SSD " + diskUsed + "%" : "");
+            } catch (Exception ignored) {
+                return "MacBookPro16,1 • STATUS UNAVAILABLE";
+            }
+        }
+
+        String readIntelMacServices() {
+            File status = new File("/sdcard/Download/daak-mya-status.json");
+            if (!status.isFile()) return "DEVICE SERVICES CHECKING";
+            try {
+                BufferedReader reader = new BufferedReader(new FileReader(status));
+                StringBuilder json = new StringBuilder();
+                String lineText;
+                while ((lineText = reader.readLine()) != null) json.append(lineText);
+                reader.close();
+                JSONObject services = new JSONObject(json.toString()).optJSONObject("services");
+                if (services == null) return "DEVICE SERVICES UNAVAILABLE";
+                ArrayList<String> live = new ArrayList<String>();
+                if (services.optBoolean("adblock")) live.add("DNS");
+                if (services.optBoolean("daak_remember_sync") || services.optBoolean("daak_remember")) live.add("REMEMBER");
+                if (services.optBoolean("disk_share")) live.add("DISK");
+                if (live.isEmpty()) return "NO DEVICE SERVICES";
+                return TextUtils.join(" ", live);
+            } catch (Exception ignored) {
+                return "DEVICE SERVICES UNAVAILABLE";
+            }
+        }
+
+        String readIntelMailServices() {
+            File status = new File("/sdcard/Download/daak-mya-status.json");
+            if (!status.isFile()) return "CHECKING";
+            try {
+                BufferedReader reader = new BufferedReader(new FileReader(status));
+                StringBuilder json = new StringBuilder();
+                String lineText;
+                while ((lineText = reader.readLine()) != null) json.append(lineText);
+                reader.close();
+                JSONObject services = new JSONObject(json.toString()).optJSONObject("services");
+                if (services == null) return "UNAVAILABLE";
+                ArrayList<String> live = new ArrayList<String>();
+                live.add(services.optBoolean("mail") ? "ONLINE" : "OFFLINE");
+                if (services.optBoolean("webmail")) live.add("WEBMAIL");
+                if (services.optBoolean("mail_gateway")) live.add("GATEWAY");
+                if (services.optBoolean("listmonk")) live.add("LIST");
+                return TextUtils.join(" ", live);
+            } catch (Exception ignored) {
+                return "UNAVAILABLE";
+            }
+        }
+
+        String readFastDropStatus() {
+            File status = new File("/sdcard/Download/daak-fastdrop-status.json");
+            if (!status.isFile()) return "DURUM BEKLENİYOR";
+            try {
+                BufferedReader reader = new BufferedReader(new FileReader(status));
+                StringBuilder json = new StringBuilder();
+                String lineText;
+                while ((lineText = reader.readLine()) != null) json.append(lineText);
+                reader.close();
+                JSONObject fastDrop = new JSONObject(json.toString());
+                if (!fastDrop.optBoolean("mounted", false)) return "ALAN BAĞLI DEĞİL";
+                String state = fastDrop.optString("state", "unknown").toLowerCase(Locale.US);
+                String stateLabel;
+                if ("idle".equals(state)) stateLabel = "HAZIR";
+                else if ("copying".equals(state) || "receiving".equals(state)) stateLabel = "AKTARILIYOR";
+                else if ("error".equals(state)) stateLabel = "HATA";
+                else stateLabel = state.toUpperCase(Locale.US);
+                long availableBytes = fastDrop.optLong("available_bytes", -1L);
+                int incomingFiles = fastDrop.optInt("incoming_files", 0);
+                int retainedFiles = fastDrop.optInt("retained_files", 0);
+                String free = availableBytes >= 0L
+                        ? String.format(Locale.US, "%.1f GB BOŞ", availableBytes / 1073741824.0d)
+                        : "BOŞ ALAN ?";
+                String error = fastDrop.optString("last_error", "");
+                if (error.length() > 0 && !"null".equalsIgnoreCase(error)) {
+                    return "HATA • " + trimText(error, 32);
+                }
+                return stateLabel + " • " + free + " • " + incomingFiles + " KUYRUK • " + retainedFiles + " SAKLI";
+            } catch (Exception ignored) {
+                return "DURUM ALINAMADI";
+            }
         }
 
         void scheduleDiskRetry() {
@@ -932,8 +1094,10 @@ public final class MainActivity extends Activity {
             int delay = minutes[Math.min(diskRetryStep, minutes.length - 1)];
             diskRetryStep++;
             nextDiskRetry = now + delay * 60_000L;
-            String root = Base64.encodeToString(DISK_ROOT.getBytes(Charset.forName("UTF-8")), Base64.NO_WRAP);
-            runTermuxRaw("exec ~/.shortcuts/lolile-list " + root + " 0 /sdcard/Download/daak-lolile-health.txt", true, null);
+            String source = diskShortcutPrefix();
+            String root = Base64.encodeToString(diskRoot().getBytes(Charset.forName("UTF-8")), Base64.NO_WRAP);
+            runTermuxRaw("exec ~/.shortcuts/" + source + "-list " + root +
+                    " 0 /sdcard/Download/daak-" + source + "-health.txt", true, null);
         }
 
         void updateMailLine() {
@@ -1685,16 +1849,21 @@ public final class MainActivity extends Activity {
             RectF terminal = new RectF(left, dp(67), right, dp(178));
             box(c, terminal, 16, panel, line);
             type(7, mintDim, true); c.drawText("// LIVE CONTROL PLANE", left + dp(14), dp(86), paint);
-            type(9, mint, false);
-            c.drawText("MESH  " + displayMesh(), left + dp(14), dp(108), paint);
-            c.drawText("MAC " + macState + "  •  LOLILE " + diskState, left + dp(14), dp(129), paint);
-            c.drawText("SSH " + sshState + " • CT " + crosstalkState + " • ROOT " + (rooted ? "YES" : "NO"), left + dp(14), dp(150), paint);
-            type(6.5f, soft, true); c.drawText("> " + trimText(message, 43), left + dp(14), dp(169), paint);
+            type(8.2f, mint, false);
+            c.drawText("MESH  " + displayMesh(), left + dp(14), dp(105), paint);
+            type(6.9f, mint, false);
+            String intelLive = myaDiskState.equals("ONLINE") ? intelMacServices : "DEVICE SERVICES OFFLINE";
+            String mailLive = myaDiskState.equals("ONLINE") ? intelMailServices : "OFFLINE";
+            c.drawText("INTEL MAC " + myaDiskState + " • " + trimText(intelLive, 39), left + dp(14), dp(121), paint);
+            c.drawText("MAIL SERVICE @ MYA • " + trimText(mailLive, 34), left + dp(14), dp(137), paint);
+            c.drawText("FASTDROP • " + trimText(fastDropLine, 43), left + dp(14), dp(153), paint);
+            c.drawText("LOLILE " + diskState + (diskState.equals("ONLINE") ? " • KUREK DISK" : " • SERVICES OFFLINE"),
+                    left + dp(14), dp(169), paint);
 
             type(7, mintDim, true); c.drawText("// WORKSPACE", left, dp(197), paint);
             float half = (right - left - gap) / 2f;
             button(c, new RectF(left, dp(205), left + half, dp(257)), "CLI", "CODEX", "MAC • REAL CLI", true, "CODEX");
-            button(c, new RectF(left + half + gap, dp(205), right, dp(257)), "SMB3", "LOLILE KUREK", "smb://lolile/kurek", true, "DISK");
+            button(c, new RectF(left + half + gap, dp(205), right, dp(257)), "MESH", "PRIVATE DISKS", "LOLILE + INTEL MAC", true, "DISK");
             button(c, new RectF(left, dp(265), left + half, dp(317)), "GOOGLE", "REMOTE", "CHROME REMOTE DESKTOP", false, "REMOTE");
             button(c, new RectF(left + half + gap, dp(265), right, dp(317)), "LINUX", "DEBIAN", "LOCAL PROOT", false, "LOCAL");
 
@@ -1741,14 +1910,19 @@ public final class MainActivity extends Activity {
 
             RectF terminal = new RectF(x1, top, x1 + col, dp(191));
             box(c, terminal, 14, panel, line); type(7, mintDim, true); c.drawText("// LIVE CONTROL", x1 + dp(12), top + dp(20), paint);
-            type(8, mint, false); c.drawText("MESH  " + displayMesh(), x1 + dp(12), top + dp(45), paint);
-            c.drawText("MAC " + macState + " • LOLILE " + diskState, x1 + dp(12), top + dp(67), paint);
-            c.drawText("SSH " + sshState + " • CT " + crosstalkState + " • ROOT " + (rooted ? "YES" : "NO"), x1 + dp(12), top + dp(89), paint);
-            type(6.2f, soft, true); c.drawText("> " + trimText(message, 34), x1 + dp(12), top + dp(112), paint);
+            type(7.2f, mint, false); c.drawText("MESH  " + displayMesh(), x1 + dp(12), top + dp(42), paint);
+            type(5.8f, mint, false);
+            String intelLive = myaDiskState.equals("ONLINE") ? intelMacServices : "DEVICE SERVICES OFFLINE";
+            String mailLive = myaDiskState.equals("ONLINE") ? intelMailServices : "OFFLINE";
+            c.drawText("INTEL MAC " + myaDiskState + " • " + trimText(intelLive, 31), x1 + dp(12), top + dp(60), paint);
+            c.drawText("MAIL @ MYA • " + trimText(mailLive, 34), x1 + dp(12), top + dp(78), paint);
+            c.drawText("FASTDROP • " + trimText(fastDropLine, 36), x1 + dp(12), top + dp(96), paint);
+            c.drawText("LOLILE " + diskState + (diskState.equals("ONLINE") ? " • KUREK" : " • OFFLINE") + " • SSH " + sshState,
+                    x1 + dp(12), top + dp(113), paint);
 
             float tileTop = dp(199), tileH = (bottom - tileTop - gap) / 2f, tileW = (col - gap) / 2f;
             button(c, new RectF(x1, tileTop, x1 + tileW, tileTop + tileH), "CLI", "CODEX", "MAC CLI", true, "CODEX");
-            button(c, new RectF(x1 + tileW + gap, tileTop, x1 + col, tileTop + tileH), "SMB3", "DISK", "LOLILE / KUREK", true, "DISK");
+            button(c, new RectF(x1 + tileW + gap, tileTop, x1 + col, tileTop + tileH), "MESH", "DISKS", "LOLILE + INTEL MAC", true, "DISK");
             button(c, new RectF(x1, tileTop + tileH + gap, x1 + tileW, bottom), "GOOGLE", "REMOTE", "CHROME RD", false, "REMOTE");
             button(c, new RectF(x1 + tileW + gap, tileTop + tileH + gap, x1 + col, bottom), "LINUX", "DEBIAN", "LOCAL", false, "LOCAL");
 
@@ -2104,13 +2278,19 @@ public final class MainActivity extends Activity {
         void drawDiskLandscape(Canvas c) {
             float left = dp(16), right = getWidth() - dp(16), top = dp(67), bottom = getHeight() - dp(58), gap = dp(8);
             float side = dp(190), listLeft = left + side + gap;
-            float sideThird = (bottom - top - gap * 2f) / 3f;
-            RectF back = new RectF(left, top, left + side, top + sideThird);
-            RectF refresh = new RectF(left, top + sideThird + gap, left + side, top + sideThird * 2f + gap);
-            RectF backup = new RectF(left, top + sideThird * 2f + gap * 2f, left + side, bottom);
+            float sideQuarter = (bottom - top - gap * 3f) / 4f;
+            RectF sourceLolile = new RectF(left, top, left + (side - gap) / 2f, top + sideQuarter);
+            RectF sourceIntel = new RectF(sourceLolile.right + gap, top, left + side, top + sideQuarter);
+            RectF source = new RectF(left, top, left + side, top + sideQuarter);
+            RectF back = new RectF(left, source.bottom + gap, left + side, source.bottom + gap + sideQuarter);
+            RectF refresh = new RectF(left, back.bottom + gap, left + side, back.bottom + gap + sideQuarter);
+            RectF context = new RectF(left, refresh.bottom + gap, left + side, bottom);
+            button(c, sourceLolile, "DISK", "LOLILE", diskState, "lolile".equals(diskSource), "DISK_SOURCE_LOLILE");
+            button(c, sourceIntel, "DISK", "INTEL", myaDiskState, "mya".equals(diskSource), "DISK_SOURCE_MYA");
             button(c, back, "BACK", "UP ONE LEVEL", trimText(diskPath, 22), false, "DISK_UP");
-            button(c, refresh, "SMB3", "REFRESH", diskState + " • TAILNET", true, "DISK_REFRESH");
-            button(c, backup, "READ", "OLED LIBRARY", "READER + BACKUP", false, "DISK_BACKUP");
+            button(c, refresh, "SYNC", "REFRESH", diskConnectionState() + " • TAILNET", true, "DISK_REFRESH");
+            button(c, context, "OPEN", "mya".equals(diskSource) ? "DOWNLOADS" : "OLED LIBRARY",
+                    "mya".equals(diskSource) ? "LOCAL FILES" : "READER + BACKUP", false, "DISK_CONTEXT");
             float colW = (right - listLeft - gap) / 2f, rowH = dp(42);
             type(7, diskLoading ? mint : soft, false); c.drawText(trimText(diskMessage, 68), listLeft, top + dp(10), paint);
             top += dp(16);
@@ -2134,7 +2314,7 @@ public final class MainActivity extends Activity {
             type(17, mint, true); c.drawText("HELP // START HERE", left, dp(88), paint);
             String[] lines = {
                     "CODEX  → Mac'teki gerçek Codex CLI; API kullanmaz.",
-                    "LOLILE → smb://lolile/kurek; Tailscale + SMB3.",
+                    "DISK   → LOLILE Kurek + Intel Mac ServerShare; Tailnet private.",
                     "LOCAL  → Telefonda Debian Linux ortamı.",
                     "APPS   → Tüm uygulamalar; dokun, ara, kaydır.",
                     "VAULT  → Kritik komutlar için 90 sn biyometrik izin.",
@@ -2181,17 +2361,25 @@ public final class MainActivity extends Activity {
 
         void drawDisk(Canvas c) {
             float left = dp(16), right = getWidth() - dp(16);
-            type(17, mint, true); c.drawText("LOLILE // " + trimText(diskPath, 27), left, dp(88), paint);
-            type(7, soft, false); c.drawText("TAILSCALE • SMB3 ENCRYPTED • " + diskState, left, dp(107), paint);
+            type(17, mint, true); c.drawText(diskLabel() + " // " + trimText(diskPath, 27), left, dp(88), paint);
+            String diskHeader = "TAILSCALE • " + diskTransport() + " • " + diskConnectionState() +
+                    ("mya".equals(diskSource) ? " • " + intelMacSummary : "");
+            type(7, soft, false); c.drawText(trimText(diskHeader, 56), left, dp(107), paint);
             float gap = dp(7), third = (right - left - gap * 2f) / 3f;
-            RectF back = new RectF(left, dp(120), left + third, dp(180));
-            RectF refresh = new RectF(left + third + gap, dp(120), left + third * 2f + gap, dp(180));
-            RectF backup = new RectF(left + third * 2f + gap * 2f, dp(120), right, dp(180));
+            float sourceHalf = (right - left - gap) / 2f;
+            RectF sourceLolile = new RectF(left, dp(120), left + sourceHalf, dp(174));
+            RectF sourceIntel = new RectF(left + sourceHalf + gap, dp(120), right, dp(174));
+            RectF back = new RectF(left, dp(181), left + third, dp(241));
+            RectF refresh = new RectF(left + third + gap, dp(181), left + third * 2f + gap, dp(241));
+            RectF context = new RectF(left + third * 2f + gap * 2f, dp(181), right, dp(241));
+            button(c, sourceLolile, "DISK", "LOLILE // KUREK", diskState, "lolile".equals(diskSource), "DISK_SOURCE_LOLILE");
+            button(c, sourceIntel, "DISK", "INTEL MAC", "MYA-L11 • " + myaDiskState, "mya".equals(diskSource), "DISK_SOURCE_MYA");
             button(c, back, "BACK", "UP ONE LEVEL", "NATIVE BROWSER", false, "DISK_UP");
-            button(c, refresh, "SMB3", "REFRESH", "PRIVATE TAILNET", true, "DISK_REFRESH");
-            button(c, backup, "READ", "OLED BOOKS", "READER + BACKUP", false, "DISK_BACKUP");
-            type(7, diskLoading ? mint : soft, false); c.drawText(trimText(diskMessage, 48), left, dp(199), paint);
-            float listTop = dp(210), listBottom = getHeight() - dp(96), y = listTop - diskScroll;
+            button(c, refresh, "SYNC", "REFRESH", "PRIVATE TAILNET", true, "DISK_REFRESH");
+            button(c, context, "OPEN", "mya".equals(diskSource) ? "DOWNLOADS" : "OLED BOOKS",
+                    "mya".equals(diskSource) ? "LOCAL FILES" : "READER + BACKUP", false, "DISK_CONTEXT");
+            type(7, diskLoading ? mint : soft, false); c.drawText(trimText(diskMessage, 48), left, dp(260), paint);
+            float listTop = dp(271), listBottom = getHeight() - dp(96), y = listTop - diskScroll;
             if (diskItems.isEmpty()) {
                 type(9, soft, false); c.drawText(diskMessage, left, y + dp(24), paint);
             } else {
@@ -2215,11 +2403,12 @@ public final class MainActivity extends Activity {
             diskLoading = true;
             diskRequestToken = System.currentTimeMillis();
             final long request = diskRequestToken;
+            final String source = diskShortcutPrefix();
             diskMessage = "Refreshing over Tailnet...";
-            message = "LOLILE INDEX REFRESHING"; invalidate();
+            message = diskLabel() + " INDEX REFRESHING"; invalidate();
             String encoded = Base64.encodeToString(diskPath.getBytes(Charset.forName("UTF-8")), Base64.NO_WRAP);
-            String target = "/sdcard/Download/daak-lolile-list.txt";
-            String command = "exec ~/.shortcuts/lolile-list " + encoded + " " + request + " " + target;
+            String target = "/sdcard/Download/daak-" + source + "-list.txt";
+            String command = "exec ~/.shortcuts/" + source + "-list " + encoded + " " + request + " " + target;
             runTermuxRaw(command, true, null);
             handler.postDelayed(() -> pollDiskIndex(request, 0), 1000L);
         }
@@ -2232,9 +2421,12 @@ public final class MainActivity extends Activity {
         void loadPrivateDiskCache() {
             try {
                 SharedPreferences prefs = getSharedPreferences(NodeStore.PREFS, 0);
-                String cachedPath = prefs.getString("kurek_cache_path", DISK_ROOT);
-                JSONArray cached = new JSONArray(prefs.getString("kurek_cache_items", "[]"));
-                if (cachedPath.equals(DISK_ROOT) || cachedPath.startsWith(DISK_ROOT + "/")) diskPath = cachedPath;
+                String prefix = diskCachePrefix();
+                String legacyPath = "lolile".equals(diskSource) ? prefs.getString("kurek_cache_path", diskRoot()) : diskRoot();
+                String legacyItems = "lolile".equals(diskSource) ? prefs.getString("kurek_cache_items", "[]") : "[]";
+                String cachedPath = prefs.getString(prefix + "_cache_path", legacyPath);
+                JSONArray cached = new JSONArray(prefs.getString(prefix + "_cache_items", legacyItems));
+                if (validDiskPath(cachedPath)) diskPath = cachedPath;
                 if (cached.length() > 0) {
                     diskItems.clear();
                     for (int i = 0; i < cached.length(); i++) diskItems.add(cached.getString(i));
@@ -2247,9 +2439,10 @@ public final class MainActivity extends Activity {
             try {
                 JSONArray cached = new JSONArray();
                 for (String item : items) cached.put(item);
+                String prefix = diskCachePrefix();
                 getSharedPreferences(NodeStore.PREFS, 0).edit()
-                        .putString("kurek_cache_path", path)
-                        .putString("kurek_cache_items", cached.toString()).apply();
+                        .putString(prefix + "_cache_path", path)
+                        .putString(prefix + "_cache_items", cached.toString()).apply();
             } catch (Exception ignored) { }
         }
 
@@ -2260,12 +2453,12 @@ public final class MainActivity extends Activity {
             else {
                 diskLoading = false;
                 diskMessage = diskItems.isEmpty() ? "Timeout • tap REFRESH" : "Refresh timed out • showing cache";
-                message = "LOLILE INDEX TIMEOUT"; invalidate();
+                message = diskLabel() + " INDEX TIMEOUT"; invalidate();
             }
         }
 
         boolean readDiskIndex(long expectedToken, boolean requireComplete) {
-            File file = new File("/sdcard/Download/daak-lolile-list.txt");
+            File file = new File("/sdcard/Download/" + diskStatusPrefix() + "-list.txt");
             final ArrayList<String> loaded = new ArrayList<String>();
             String loadedPath = null;
             String failureDetail = "";
@@ -2290,7 +2483,7 @@ public final class MainActivity extends Activity {
                 }
                 reader.close();
                 if (complete || !requireComplete) {
-                    if (loadedPath != null && (loadedPath.equals(DISK_ROOT) || loadedPath.startsWith(DISK_ROOT + "/"))) diskPath = loadedPath;
+                    if (loadedPath != null && validDiskPath(loadedPath)) diskPath = loadedPath;
                     if (!failed) {
                         diskItems.clear(); diskItems.addAll(loaded);
                     }
@@ -2301,17 +2494,17 @@ public final class MainActivity extends Activity {
             if (failed) {
                 String detail = failureDetail.length() == 0 ? "offline" : trimText(failureDetail, 44);
                 diskMessage = diskItems.isEmpty() ? "SMB3 failed • " + detail : "Refresh failed • cache • " + detail;
-                message = "LOLILE INDEX ERROR";
+                message = diskLabel() + " INDEX ERROR";
             } else {
                 diskMessage = loaded.isEmpty() ? "Folder is empty" : loaded.size() + " items • live";
-                message = "LOLILE INDEX READY";
+                message = diskLabel() + " INDEX READY";
                 if (loadedPath != null) persistPrivateDiskCache(loadedPath, loaded);
             }
             invalidate(); return true;
         }
 
         String diskItemAction(String item) {
-            String snapshot = diskPath + "\u0000" + item;
+            String snapshot = diskSource + "\u0000" + diskPath + "\u0000" + item;
             return "DISK_ITEM64:" + Base64.encodeToString(snapshot.getBytes(Charset.forName("UTF-8")),
                     Base64.NO_WRAP | Base64.URL_SAFE);
         }
@@ -2322,11 +2515,13 @@ public final class MainActivity extends Activity {
                 snapshot = new String(Base64.decode(encoded, Base64.NO_WRAP | Base64.URL_SAFE),
                         Charset.forName("UTF-8"));
             } catch (RuntimeException error) { return; }
-            int separator = snapshot.indexOf('\u0000');
-            if (separator < 0) return;
-            String sourcePath = snapshot.substring(0, separator);
-            String item = snapshot.substring(separator + 1);
-            if (!(sourcePath.equals(DISK_ROOT) || sourcePath.startsWith(DISK_ROOT + "/")) ||
+            int sourceSeparator = snapshot.indexOf('\u0000');
+            int pathSeparator = sourceSeparator < 0 ? -1 : snapshot.indexOf('\u0000', sourceSeparator + 1);
+            if (sourceSeparator < 0 || pathSeparator < 0) return;
+            String source = snapshot.substring(0, sourceSeparator);
+            String sourcePath = snapshot.substring(sourceSeparator + 1, pathSeparator);
+            String item = snapshot.substring(pathSeparator + 1);
+            if (!source.equals(diskSource) || !validDiskPath(sourcePath) ||
                     !(item.startsWith("[D] ") || item.startsWith("[F] "))) return;
             String name = item.length() > 4 ? item.substring(4) : "";
             if (item.startsWith("[D] ")) {
@@ -2335,31 +2530,31 @@ public final class MainActivity extends Activity {
                 diskItems.clear();
                 diskScroll = 0;
                 refreshDiskIndex();
-            } else showDiskFileActions(sourcePath, name);
+            } else showDiskFileActions(source, sourcePath, name);
         }
 
-        void showDiskFileActions(final String sourcePath, final String name) {
+        void showDiskFileActions(final String source, final String sourcePath, final String name) {
             AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
-                    .setTitle("KUREK // " + trimText(name, 38))
+                    .setTitle(("mya".equals(source) ? "MYA" : "KUREK") + " // " + trimText(name, 38))
                     .setMessage("Önizleme dosyayı telefonda kalıcı olarak kaydetmez; veri yalnız görüntülenirken Tailnet üzerinden akar.")
-                    .setPositiveButton("ÖNİZLE", (d, which) -> previewDiskFile(sourcePath, name))
-                    .setNeutralButton("İNDİR", (d, which) -> downloadDiskFile(sourcePath, name))
+                    .setPositiveButton("ÖNİZLE", (d, which) -> previewDiskFile(source, sourcePath, name))
+                    .setNeutralButton("İNDİR", (d, which) -> downloadDiskFile(source, sourcePath, name))
                     .setNegativeButton("İPTAL", null).create();
             showDaakDialog(dialog);
         }
 
-        void previewDiskFile(String sourcePath, String name) {
+        void previewDiskFile(String source, String sourcePath, String name) {
             String fullPath = sourcePath + (sourcePath.endsWith("/") ? "" : "/") + name;
             String encoded = Base64.encodeToString(fullPath.getBytes(Charset.forName("UTF-8")), Base64.NO_WRAP);
             long token = System.currentTimeMillis();
             diskMessage = "Streaming preview • " + trimText(name, 24);
-            message = "KUREK FILE // PREVIEW"; invalidate();
-            runTermuxRaw("exec ~/.shortcuts/lolile-preview " + encoded + " " + token, true, null);
-            handler.postDelayed(() -> pollDiskPreview(token, name, 0), 500L);
+            message = source.toUpperCase(Locale.US) + " FILE // PREVIEW"; invalidate();
+            runTermuxRaw("exec ~/.shortcuts/" + source + "-preview " + encoded + " " + token, true, null);
+            handler.postDelayed(() -> pollDiskPreview(source, token, name, 0), 500L);
         }
 
-        void pollDiskPreview(final long token, final String name, final int attempt) {
-            File status = new File("/sdcard/Download/daak-lolile-preview-" + token + ".txt");
+        void pollDiskPreview(final String source, final long token, final String name, final int attempt) {
+            File status = new File("/sdcard/Download/daak-" + source + "-preview-" + token + ".txt");
             if (status.isFile() && status.length() > 0) {
                 try {
                     BufferedReader reader = new BufferedReader(new FileReader(status));
@@ -2372,7 +2567,7 @@ public final class MainActivity extends Activity {
                             throw new IllegalStateException("unsafe preview URL");
                         }
                         diskMessage = "Preview ready • no local copy";
-                        message = "KUREK FILE // STREAMING"; invalidate();
+                        message = source.toUpperCase(Locale.US) + " FILE // STREAMING"; invalidate();
                         Intent view = new Intent(Intent.ACTION_VIEW, url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                         String previewBrowser = getPackageManager().getLaunchIntentForPackage("org.mozilla.fennec_fdroid") != null
                                 ? "org.mozilla.fennec_fdroid"
@@ -2387,55 +2582,55 @@ public final class MainActivity extends Activity {
                         noteExternalLaunch(previewBrowser);
                         startActivity(view);
                     } else {
-                        diskMessage = "Preview failed • LOLILE offline";
-                        message = "KUREK PREVIEW // ERROR"; invalidate();
+                        diskMessage = "Preview failed • " + source.toUpperCase(Locale.US) + " offline";
+                        message = source.toUpperCase(Locale.US) + " PREVIEW // ERROR"; invalidate();
                     }
                     return;
                 } catch (Exception ignored) {
                     status.delete();
                     diskMessage = "Preview rejected • tap to retry";
-                    message = "KUREK PREVIEW // ERROR"; invalidate();
+                    message = source.toUpperCase(Locale.US) + " PREVIEW // ERROR"; invalidate();
                     return;
                 }
             }
-            if (attempt < 39) handler.postDelayed(() -> pollDiskPreview(token, name, attempt + 1), 500L);
+            if (attempt < 39) handler.postDelayed(() -> pollDiskPreview(source, token, name, attempt + 1), 500L);
             else {
-                diskMessage = "Preview timeout • LOLILE offline";
-                message = "KUREK PREVIEW // TIMEOUT"; invalidate();
+                diskMessage = "Preview timeout • " + source.toUpperCase(Locale.US) + " offline";
+                message = source.toUpperCase(Locale.US) + " PREVIEW // TIMEOUT"; invalidate();
             }
         }
 
-        void downloadDiskFile(String sourcePath, String name) {
+        void downloadDiskFile(String source, String sourcePath, String name) {
             String fullPath = sourcePath + (sourcePath.endsWith("/") ? "" : "/") + name;
             String encoded = Base64.encodeToString(fullPath.getBytes(Charset.forName("UTF-8")), Base64.NO_WRAP);
             long token = System.currentTimeMillis();
             diskMessage = "Downloading " + trimText(name, 25) + "...";
-            message = "KUREK FILE // DOWNLOADING"; invalidate();
-            runTermuxRaw("exec ~/.shortcuts/lolile-fetch " + encoded + " " + token, true, null);
-            handler.postDelayed(() -> pollDiskDownload(token, name, 0), 1000L);
+            message = source.toUpperCase(Locale.US) + " FILE // DOWNLOADING"; invalidate();
+            runTermuxRaw("exec ~/.shortcuts/" + source + "-fetch " + encoded + " " + token, true, null);
+            handler.postDelayed(() -> pollDiskDownload(source, token, name, 0), 1000L);
         }
 
-        void pollDiskDownload(final long token, final String name, final int attempt) {
-            File status = new File("/sdcard/Download/daak-lolile-fetch-" + token + ".txt");
+        void pollDiskDownload(final String source, final long token, final String name, final int attempt) {
+            File status = new File("/sdcard/Download/daak-" + source + "-fetch-" + token + ".txt");
             if (status.isFile() && status.length() > 0) {
                 try {
                     BufferedReader reader = new BufferedReader(new FileReader(status));
                     String result = reader.readLine(); reader.close(); status.delete();
                     if (result != null && result.startsWith("[OK] ")) {
                         diskMessage = "Downloaded • opening " + trimText(name, 22);
-                        message = "KUREK FILE // READY"; invalidate();
+                        message = source.toUpperCase(Locale.US) + " FILE // READY"; invalidate();
                         openDownloadedFile(result.substring(5).trim());
                     } else {
                         diskMessage = "Download failed • tap file to retry";
-                        message = "KUREK FILE // ERROR"; invalidate();
+                        message = source.toUpperCase(Locale.US) + " FILE // ERROR"; invalidate();
                     }
                     return;
                 } catch (Exception ignored) { }
             }
-            if (attempt < 50) handler.postDelayed(() -> pollDiskDownload(token, name, attempt + 1), 1000L);
+            if (attempt < 50) handler.postDelayed(() -> pollDiskDownload(source, token, name, attempt + 1), 1000L);
             else {
                 diskMessage = "Download timeout • tap file to retry";
-                message = "KUREK FILE // TIMEOUT"; invalidate();
+                message = source.toUpperCase(Locale.US) + " FILE // TIMEOUT"; invalidate();
             }
         }
 
@@ -2449,12 +2644,15 @@ public final class MainActivity extends Activity {
         }
 
         void openDownloadedFile(String absolutePath) {
-            if (!absolutePath.startsWith("/sdcard/Download/DAAK-Kurek/")) {
+            String providerSource;
+            if (absolutePath.startsWith("/sdcard/Download/DAAK-Kurek/")) providerSource = "lolile";
+            else if (absolutePath.startsWith("/sdcard/Download/DAAK-MYA/")) providerSource = "mya";
+            else {
                 toast("Güvensiz dosya yolu reddedildi"); return;
             }
             File downloaded = new File(absolutePath);
             Uri document = new Uri.Builder().scheme("content").authority(KurekFileProvider.AUTHORITY)
-                    .appendPath(downloaded.getName()).build();
+                    .appendPath(providerSource).appendPath(downloaded.getName()).build();
             Intent view = new Intent(Intent.ACTION_VIEW).setDataAndType(document, mimeForFile(absolutePath));
             view.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
             if (getPackageManager().getLaunchIntentForPackage("me.zhanghai.android.files") != null)
@@ -2468,16 +2666,63 @@ public final class MainActivity extends Activity {
 
         void diskUp() {
             String current = diskPath;
-            while (current.endsWith("/") && current.length() > DISK_ROOT.length()) current = current.substring(0, current.length() - 1);
+            String root = diskRoot();
+            while (current.endsWith("/") && current.length() > root.length()) current = current.substring(0, current.length() - 1);
             int slash = current.lastIndexOf('/');
-            diskPath = slash < DISK_ROOT.length() ? DISK_ROOT : current.substring(0, slash);
+            diskPath = slash < root.length() ? root : current.substring(0, slash);
             diskScroll = 0;
             refreshDiskIndex();
         }
 
         void openDiskTerminal() {
             String encoded = Base64.encodeToString(diskPath.getBytes(Charset.forName("UTF-8")), Base64.NO_WRAP);
-            runTermux("exec ~/.shortcuts/lolile-disk " + encoded, "LOLILE SMB3");
+            runTermux("exec ~/.shortcuts/" + diskShortcutPrefix() + "-disk " + encoded, diskLabel());
+        }
+
+        void showDiskSourcePicker() {
+            String[] sources = {"LOLILE // KUREK (SMB3)", "INTEL MAC // MYA-L11 SERVER SHARE (SSH)"};
+            int selected = "mya".equals(diskSource) ? 1 : 0;
+            AlertDialog dialog = new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("PRIVATE DISKS // SOURCE")
+                    .setSingleChoiceItems(sources, selected, (d, which) -> {
+                        d.dismiss();
+                        switchDiskSource(which == 1 ? "mya" : "lolile");
+                    })
+                    .setNegativeButton("İPTAL", null).create();
+            showDaakDialog(dialog);
+        }
+
+        void switchDiskSource(String source) {
+            String normalized = "mya".equals(source) ? "mya" : "lolile";
+            if (normalized.equals(diskSource)) return;
+            diskRequestToken++;
+            diskSource = normalized;
+            diskPath = diskRoot();
+            diskItems.clear();
+            diskScroll = 0;
+            diskLoading = false;
+            diskMessage = "Loading " + diskLabel() + "...";
+            getSharedPreferences(NodeStore.PREFS, 0).edit().putString("disk_source", diskSource).apply();
+            loadCachedDiskIndex();
+            refreshDiskIndex();
+        }
+
+        void openDiskDownloadsFolder() {
+            String folderName = "mya".equals(diskSource) ? "DAAK-MYA" : "DAAK-Kurek";
+            Uri folder = DocumentsContract.buildDocumentUri("com.android.externalstorage.documents",
+                    "primary:Download/" + folderName);
+            Intent view = new Intent(Intent.ACTION_VIEW).setDataAndType(folder, "inode/directory")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
+                            Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (getPackageManager().getLaunchIntentForPackage("me.zhanghai.android.files") != null)
+                view.setClassName("me.zhanghai.android.files", "me.zhanghai.android.files.filelist.FileListActivity");
+            try {
+                noteExternalLaunch("me.zhanghai.android.files");
+                startActivity(view);
+            } catch (RuntimeException error) {
+                launchPackage("me.zhanghai.android.files");
+                toast("Download / " + folderName);
+            }
         }
 
         void showBookBackupPanel() {
@@ -3417,7 +3662,7 @@ public final class MainActivity extends Activity {
             }
             if (mode == DISK_VIEW) {
                 if (getWidth() > getHeight()) return Math.max(0, ((diskItems.size() + 1) / 2f) * dp(42) - (getHeight() - dp(141)));
-                return Math.max(0, diskItems.size() * dp(46) - (getHeight() - dp(306)));
+                return Math.max(0, diskItems.size() * dp(46) - (getHeight() - dp(367)));
             }
             float visible = getWidth() > getHeight() ? getHeight() - dp(149) : getHeight() - dp(306);
             float rowHeight = getWidth() > getHeight() ? dp(44) : dp(55);
@@ -3477,6 +3722,13 @@ public final class MainActivity extends Activity {
                 else launchOrStore("com.google.android.calendar");
             }
             else if (a.equals("DISK_REFRESH")) refreshDiskIndex();
+            else if (a.equals("DISK_SOURCE")) showDiskSourcePicker();
+            else if (a.equals("DISK_SOURCE_LOLILE")) switchDiskSource("lolile");
+            else if (a.equals("DISK_SOURCE_MYA")) switchDiskSource("mya");
+            else if (a.equals("DISK_CONTEXT")) {
+                if ("mya".equals(diskSource)) openDiskDownloadsFolder();
+                else showBookBackupPanel();
+            }
             else if (a.equals("DISK_BACKUP")) showBookBackupPanel();
             else if (a.equals("DISK_UP")) diskUp();
             else if (a.startsWith("DISK_ITEM64:")) openDiskItemSnapshot(a.substring(12));

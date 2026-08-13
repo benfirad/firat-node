@@ -10,16 +10,38 @@ fail() { printf 'FAIL  %s\n' "$1" >&2; exit 1; }
 git diff --check
 pass "git diff hygiene"
 
-sh -n build-apk.sh tools/migrate-v7.sh companion/macos/daak-phone companion/magisk/daak-sshd-firewall.sh companion/magisk/daak-app-cleaner.sh companion/magisk/install-bixby-codex.sh companion/termux/daak-selftest companion/termux/keenetic-wol companion/termux/rm-os-sync-daemon companion/termux/rm-os-sync-boot tests/device-app-sweep.sh tests/device-ui-sweep.sh
+sh -n build-apk.sh tools/migrate-v7.sh tools/install-daak-find.sh companion/macos/DAAK\ Find.command companion/macos/daak-phone companion/macos/daak-find companion/magisk/daak-sshd-firewall.sh companion/magisk/daak-app-cleaner.sh companion/magisk/daak-gateway-watchdog.sh companion/magisk/daak-power-reserve.sh companion/magisk/daak-location-privacy.sh companion/magisk/daak-location-privacy-boot.sh companion/magisk/install-daak-gateway.sh companion/magisk/install-bixby-codex.sh companion/termux/daak-find companion/termux/daak-find-boot companion/termux/daak-selftest companion/termux/keenetic-wol companion/termux/rm-os-sync-daemon companion/termux/rm-os-sync-boot tests/device-app-sweep.sh tests/device-ui-sweep.sh tests/power-reserve-policy.sh
 pass "shell syntax"
+
+tests/power-reserve-policy.sh >/dev/null
+pass "Power Reserve safety transitions"
+
+python3 tests/daak-find-policy.py >/dev/null
+pass "Google-free DAAK Find location policy"
+
+python3 tests/mya-disk-policy.py >/dev/null
+pass "MYA disk path and key-only SSH policy"
 
 grep -q 'android:canRequestFilterKeyEvents="true"' res/xml/node_control_accessibility.xml || fail "Bixby key event capability"
 grep -q 'KEYCODE_SAMSUNG_BIXBY = 1082' src/com/daak/node/NodeControlAccessibilityService.java || fail "Samsung Bixby key mapping"
 grep -q 'EXTRA_CODEX_STANDALONE' src/com/daak/node/MainActivity.java || fail "projectless Codex intent"
 pass "Bixby key opens projectless Codex through the biometric gate"
 
-python3 -c 'import ast, pathlib; [ast.parse(pathlib.Path(path).read_text()) for path in ("companion/termux/lolile-preview", "companion/termux/lolile-books-sync", "companion/termux/daak-airplay", "companion/termux/rm-os-sync-once")]'
-pass "Kurek and AirPlay bridge syntax"
+grep -q 'MotionEvent.ACTION_MOVE' src/com/daak/node/NodeControlAccessibilityService.java || \
+    fail "bottom-edge gesture handles movement before system cancellation"
+grep -q 'WindowManager.LayoutParams.MATCH_PARENT, dp(24)' \
+    src/com/daak/node/NodeControlAccessibilityService.java || \
+    fail "bottom-edge gesture capture height"
+pass "bottom-edge gesture is cancellation-safe"
+
+python3 -c 'import ast, pathlib; [ast.parse(pathlib.Path(path).read_text()) for path in ("companion/termux/lolile-preview", "companion/termux/lolile-books-sync", "companion/termux/mya-list", "companion/termux/mya-preview", "companion/termux/mya-fetch", "companion/termux/daak-airplay", "companion/termux/rm-os-sync-once")]'
+pass "private disk and AirPlay bridge syntax"
+
+grep -q 'MYA_DISK_ROOT = "sftp://mya-l11/ServerShare"' src/com/daak/node/MainActivity.java || \
+    fail "MYA disk root"
+grep -q 'DISK_SOURCE' src/com/daak/node/MainActivity.java || fail "private disk source selector"
+grep -q 'DAAK-MYA' src/com/daak/node/KurekFileProvider.java || fail "MYA download provider"
+pass "dual private-disk UI integration"
 
 if rg -qi 'airpipe' AndroidManifest.xml src README.md companion; then
     fail "paid AirPipe dependency removed"
@@ -36,12 +58,32 @@ rg -q 'AĞA GÖNDER' src/com/daak/node/MainActivity.java || \
     fail "explicit per-item network share UI"
 pass "mail and WhatsApp remain phone-local until explicit per-item share"
 
+rg -q '"DISK_SOURCE_MYA"' src/com/daak/node/MainActivity.java || \
+    fail "visible Intel Mac disk source"
+rg -q 'INTEL MAC.*MYA-L11' src/com/daak/node/MainActivity.java || \
+    fail "Intel Mac identity on home and disk UI"
+rg -q 'intelMacServices' src/com/daak/node/MainActivity.java || \
+    fail "live Intel Mac service badges"
+rg -Fq 'services.optBoolean("mail")' src/com/daak/node/MainActivity.java || \
+    fail "mail service badge is status-backed"
+rg -q 'MAIL SERVICE @ MYA' src/com/daak/node/MainActivity.java || \
+    fail "mail stack is a separate service entity from Intel Mac"
+rg -q 'readIntelMailServices' src/com/daak/node/MainActivity.java || \
+    fail "mail stack has independent live status"
+pass "Intel Mac, its hosted mail stack, and private disks are separate live entities"
+
+rg -q 'simPinSubmitted' src/com/daak/node/NodeControlAccessibilityService.java || \
+    fail "single-submit SIM PIN guard"
+rg -q 'com.android.settings.Settings\$IccLockSettingsActivity' \
+    src/com/daak/node/NodeControlAccessibilityService.java || fail "direct SIM lock settings"
+pass "SIM PIN disable flow is scoped and single-submit"
+
 ./build-apk.sh >/dev/null
 pass "clean APK build"
 
 aapt2_bin=${ANDROID_HOME:-$HOME/Library/Android/sdk}/build-tools/35.0.1/aapt2
-"$aapt2_bin" dump badging DAAK-NODE.apk | grep -q "versionCode='32'.*versionName='7.1.0'" || fail "APK version"
-pass "APK version 7.1.0 (32)"
+"$aapt2_bin" dump badging DAAK-NODE.apk | grep -q "versionCode='35'.*versionName='7.1.3'" || fail "APK version"
+pass "APK version 7.1.3 (35)"
 
 remote_test_dir=$(mktemp -d)
 javac --release 8 -d "$remote_test_dir" src/com/daak/node/RemoteRouting.java tests/RemoteRoutingTest.java
@@ -68,30 +110,55 @@ fi
 if command -v adb >/dev/null 2>&1; then
     device=${DAAK_DEVICE_SERIAL:-$(adb devices | awk '$2 == "device" {print $1; exit}')}
     if [ -n "$device" ]; then
-        adb -s "$device" shell dumpsys package com.daak.node | grep -q 'versionName=7.1.0' || fail "installed DAAK version"
+        adb -s "$device" shell dumpsys package com.daak.node | grep -q 'versionName=7.1.3' || fail "installed DAAK version"
         adb -s "$device" shell "su -c 'id'" | grep -q 'uid=0(root)' || fail "root"
         adb -s "$device" shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME | grep -q 'com.daak.node/.MainActivity' || fail "default launcher"
         adb -s "$device" shell settings get secure enabled_accessibility_services | grep -q 'com.daak.node/.NodeControlAccessibilityService' || fail "system-wide DAAK Home gesture"
         screen_size=$(adb -s "$device" shell wm size | sed -n 's/.*: \([0-9][0-9]*\)x\([0-9][0-9]*\).*/\1 \2/p' | tail -n 1)
         screen_width=${screen_size%% *}
         screen_height=${screen_size##* }
-        adb -s "$device" shell am start -W -a android.settings.SETTINGS >/dev/null
-        adb -s "$device" shell input swipe $((screen_width / 2)) $((screen_height - 10)) \
-            $((screen_width / 2)) $((screen_height / 2)) 420
+        adb -s "$device" shell input keyevent KEYCODE_WAKEUP
+        adb -s "$device" shell wm dismiss-keyguard
         sleep 1
-        adb -s "$device" shell dumpsys activity activities | grep -m1 'mResumedActivity' | \
-            grep -q 'com.daak.node/.MainActivity' || fail "bottom-edge swipe returns to DAAK Home"
+        wakefulness=$(adb -s "$device" shell dumpsys power | grep -m1 'mWakefulness=' || true)
+        keyguard=$(adb -s "$device" shell dumpsys window | grep -m1 'mDreamingLockscreen=' || true)
+        if echo "$wakefulness" | grep -q 'Awake' && echo "$keyguard" | grep -q 'mDreamingLockscreen=false'; then
+            adb -s "$device" shell am start -W -a android.settings.SETTINGS >/dev/null
+            adb -s "$device" shell input swipe $((screen_width / 2)) $((screen_height - 10)) \
+                $((screen_width / 2)) $((screen_height / 2)) 420
+            gesture_home_ok=false
+            gesture_attempts=0
+            while [ "$gesture_attempts" -lt 5 ]; do
+                resumed=$(adb -s "$device" shell dumpsys activity activities | \
+                    grep -E -m1 'mResumedActivity|ResumedActivity' || true)
+                case "$resumed" in
+                    *com.daak.node/.MainActivity*) gesture_home_ok=true; break ;;
+                esac
+                gesture_attempts=$((gesture_attempts + 1))
+                sleep 1
+            done
+            [ "$gesture_home_ok" = true ] || fail "bottom-edge swipe returns to DAAK Home"
+        else
+            adb -s "$device" shell dumpsys window windows | \
+                grep -q 'DAAK control surface' || fail "bottom-edge gesture overlay armed while locked"
+        fi
         adb -s "$device" shell pm path com.google.chromeremotedesktop >/dev/null || fail "Chrome Remote Desktop"
         ! adb -s "$device" shell pm list packages | grep -qi rustdesk || fail "RustDesk absent"
-        adb -s "$device" shell dumpsys deviceidle whitelist | grep -q 'com.bitchat.droid' || fail "Bitchat Doze exemption"
-        adb -s "$device" shell dumpsys package com.bitchat.droid | grep -q 'ACCESS_BACKGROUND_LOCATION: granted=true' || fail "Bitchat background location"
-        adb -s "$device" shell dumpsys activity services com.bitchat.droid | grep -q 'isForeground=true' || fail "Bitchat foreground mesh"
+        adb -s "$device" shell cmd appops get com.bitchat.droid RUN_IN_BACKGROUND | grep -q 'ignore' || fail "Bitchat background restriction"
+        adb -s "$device" shell cmd appops get com.bitchat.droid RUN_ANY_IN_BACKGROUND | grep -q 'ignore' || fail "Bitchat any-background restriction"
+        ! adb -s "$device" shell dumpsys activity services com.bitchat.droid | grep -q 'isForeground=true' || fail "Bitchat foreground mesh stopped"
         adb -s "$device" shell "su -c 'iptables -S INPUT'" | grep -q -- '--dport 8022 -j DAAK_SSHD_INPUT' || fail "SSH firewall"
         adb -s "$device" shell "su -c 'iptables -S INPUT'" | grep -q -- '--dport 5555 -j DAAK_SSHD_INPUT' || fail "remote ADB firewall"
         adb -s "$device" shell "su -c 'pid=\$(cat /data/adb/daak-app-cleaner.pid); kill -0 \"\$pid\"'" || fail "app cleaner service"
+        adb -s "$device" shell "su -c 'pid=\$(cat /data/adb/daak-power-reserve.pid); kill -0 \"\$pid\"'" || fail "Power Reserve service"
+        adb -s "$device" shell "su -c 'test ! -e /data/adb/daak-power-reserve.enabled'" || fail "Power Reserve safely disarmed"
+        adb -s "$device" shell "su -c 'grep -q "state=disabled" /data/adb/daak-power-reserve/status'" || fail "Power Reserve disabled status"
         adb -s "$device" shell "su -c 'test -x /data/adb/daak-keenetic-wol'" || fail "root-constrained Keenetic WOL bridge"
         adb -s "$device" shell "su -c 'test -r /data/adb/daak-scrcpy-server.jar'" || fail "headless WOL virtual-display runtime"
         adb -s "$device" shell "su -c 'test -x /data/data/com.termux/files/home/.shortcuts/lolile-preview'" || fail "Kurek preview bridge"
+        adb -s "$device" shell "su -c 'test -x /data/data/com.termux/files/home/.shortcuts/mya-list'" || fail "MYA disk list bridge"
+        adb -s "$device" shell "su -c 'test -x /data/data/com.termux/files/home/.shortcuts/mya-preview'" || fail "MYA preview bridge"
+        adb -s "$device" shell "su -c 'test -x /data/data/com.termux/files/home/.shortcuts/mya-fetch'" || fail "MYA download bridge"
         adb -s "$device" shell "su -c 'test -x /data/data/com.termux/files/home/.shortcuts/lolile-books-sync'" || fail "book backup bridge"
         adb -s "$device" shell "su -c 'test -x /data/data/com.termux/files/home/.shortcuts/daak-airplay'" || fail "free AirPlay bridge"
         adb -s "$device" shell "su -c 'test -x /data/data/com.termux/files/home/.shortcuts/keenetic-wol'" || fail "Keenetic Cloud WOL bridge"
@@ -127,4 +194,4 @@ if command -v adb >/dev/null 2>&1; then
     fi
 fi
 
-printf 'DAAK NODE v7.1.0 verification complete.\n'
+printf 'DAAK NODE v7.1.3 verification complete.\n'

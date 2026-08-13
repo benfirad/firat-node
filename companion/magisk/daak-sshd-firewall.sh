@@ -18,7 +18,6 @@ fi
     remote_adb_flag=/data/adb/daak-remote-adb.enabled
     termux_home=/data/data/com.termux/files/home
     heartbeat="$termux_home/.config/daak/sshd-firewall.ready"
-    bitchat_tick=4
     while true; do
         healthy=1
         saw_tool=0
@@ -64,20 +63,6 @@ fi
             elif [ ! -f "$remote_adb_flag" ] && [ "$(getprop service.adb.tcp.port)" = "5555" ]; then
                 setprop service.adb.tcp.port -1
                 stop adbd; start adbd
-            fi
-        fi
-        bitchat_tick=$((bitchat_tick + 1))
-        if [ "$bitchat_tick" -ge 5 ]; then
-            if [ "$(getprop sys.user.0.ce_available)" = "true" ]; then
-                bitchat_tick=0
-                if ! pidof com.bitchat.droid >/dev/null 2>&1 &&
-                        pm path com.bitchat.droid >/dev/null 2>&1; then
-                    am start-foreground-service -a com.bitchat.android.service.START \
-                        -n com.bitchat.droid/com.bitchat.android.service.MeshForegroundService \
-                        >/dev/null 2>&1 || true
-                fi
-            else
-                bitchat_tick=4
             fi
         fi
         sleep 60
