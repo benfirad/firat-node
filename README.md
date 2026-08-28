@@ -13,6 +13,28 @@
 
 DAAK NODE is a true-black, Linux-flavoured Android launcher and private control plane. It was built for a rooted Samsung Galaxy S9+ running Android 10, while keeping Android as the hardware-compatibility layer for the camera, modem, fingerprint sensor and iris scanner.
 
+The Remote panel opens validated Chrome Remote Desktop host UUIDs in the
+installed `/e/OS Browser`, bypassing the CRD TWA start-page rewrite while
+keeping Google credentials and connection PINs outside DAAK NODE. The Remote
+Devices hub uses the same official web client because Google's Android TWA
+requires the separately branded Google Chrome package.
+
+## Local vehicle shortcut
+
+DAAK NODE 7.5.3 splits the former Node Control tile into two equal actions in
+portrait and landscape: **Node Control** and a blue **Android Auto** shortcut.
+The Android Auto action starts Open Headunit's explicit local Self Mode, making
+the S9+ both sender and receiver without a second Android handset. It does not
+depend on DAAK CAR, CarPlay, CPC200, AirPlay, or an external USB host.
+Because Android Auto locks video resolution and margins during session setup,
+DAAK NODE arms its always-on accessibility service for the local session. The
+background-safe monitor debounces a physical orientation change, lets the
+loopback Android Auto session finish its teardown, and reconnects Self Mode so
+the new portrait/landscape geometry is negotiated instead of stretching the old
+stream, even while DAAK Home is behind the projection. It reads the physical
+display rotation, so Android Auto's internal virtual-display resizes cannot
+trigger a false reconnect.
+
 ## The interface
 
 These are real screenshots from the SM-G965F. Public showcase mode replaces private Tailnet addresses, mail subjects, WhatsApp tasks, notes, weather location and agenda entries with neutral demo copy.
@@ -44,6 +66,7 @@ These are real screenshots from the SM-G965F. Public showcase mode replaces priv
 - Modern 280 ms fade/scale transition when rotating between portrait and landscape
 - Dedicated three-column landscape control plane and adaptive landscape app/help/disk screens
 - Text-first app drawer, searchable launcher and built-in help/control screens
+- One-tap Android Auto local Self Mode from the home screen, with a dedicated blue logo tile
 - Biometric/device-credential vault for Codex, SSH and Debian actions
 - Direct Codex CLI control over Termux + SSH (no API integration in the launcher)
 - The Galaxy S9/S9+ Bixby key opens a biometric-gated, projectless Codex CLI session directly

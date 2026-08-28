@@ -27,6 +27,23 @@ grep -q 'KEYCODE_SAMSUNG_BIXBY = 1082' src/com/daak/node/NodeControlAccessibilit
 grep -q 'EXTRA_CODEX_STANDALONE' src/com/daak/node/MainActivity.java || fail "projectless Codex intent"
 pass "Bixby key opens projectless Codex through the biometric gate"
 
+grep -q 'com.andrerinas.openheadunit.ACTION_START_SELF_MODE' src/com/daak/node/MainActivity.java || \
+    fail "Android Auto Self Mode action"
+grep -q 'androidAutoButton' src/com/daak/node/MainActivity.java || fail "Android Auto logo button"
+grep -q 'ANDROID_AUTO' src/com/daak/node/MainActivity.java || fail "Android Auto touch action"
+grep -q 'com.andrerinas.openheadunit.ACTION_DISCONNECT' \
+    src/com/daak/node/NodeControlAccessibilityService.java || \
+    fail "Android Auto rotation disconnect action"
+grep -q 'armAndroidAutoRotation' src/com/daak/node/MainActivity.java || \
+    fail "Android Auto orientation monitor arm"
+grep -q 'restartAndroidAutoAfterRotation' src/com/daak/node/NodeControlAccessibilityService.java || \
+    fail "background Android Auto orientation reconnect"
+grep -q 'ANDROID_AUTO_ROTATION_DEBOUNCE_MS' src/com/daak/node/NodeControlAccessibilityService.java || \
+    fail "Android Auto rotation debounce"
+grep -q 'getDefaultDisplay().getRotation()' src/com/daak/node/NodeControlAccessibilityService.java || \
+    fail "Android Auto rotation monitor uses physical display rotation"
+pass "home Android Auto button uses direct Self Mode and background-safe rotation reconnect"
+
 grep -q 'MotionEvent.ACTION_MOVE' src/com/daak/node/NodeControlAccessibilityService.java || \
     fail "bottom-edge gesture handles movement before system cancellation"
 grep -q 'WindowManager.LayoutParams.MATCH_PARENT, dp(24)' \
@@ -82,14 +99,18 @@ pass "SIM PIN disable flow is scoped and single-submit"
 pass "clean APK build"
 
 aapt2_bin=${ANDROID_HOME:-$HOME/Library/Android/sdk}/build-tools/35.0.1/aapt2
-"$aapt2_bin" dump badging DAAK-NODE.apk | grep -q "versionCode='35'.*versionName='7.1.3'" || fail "APK version"
-pass "APK version 7.1.3 (35)"
+"$aapt2_bin" dump badging DAAK-NODE.apk | grep -q "versionCode='42'.*versionName='7.5.3'" || fail "APK version"
+pass "APK version 7.5.3 (42)"
 
 remote_test_dir=$(mktemp -d)
 javac --release 8 -d "$remote_test_dir" src/com/daak/node/RemoteRouting.java tests/RemoteRoutingTest.java
 java -cp "$remote_test_dir" com.daak.node.RemoteRoutingTest || fail "direct CRD route tests"
+grep -q 'foundation.e.browser' src/com/daak/node/MainActivity.java || \
+    fail "direct CRD route uses the installed /e/OS Chromium browser"
+grep -q 'https://remotedesktop.google.com/access' src/com/daak/node/MainActivity.java || \
+    fail "CRD device hub uses the web client when Google Chrome is absent"
 rm -rf "$remote_test_dir"
-pass "direct CRD routing uses validated phone-local host IDs"
+pass "direct CRD routing uses validated phone-local host IDs and installed browser"
 "$aapt2_bin" dump xmltree DAAK-NODE.apk --file AndroidManifest.xml | grep -q 'OledPlayerActivity' || fail "OLED player activity"
 pass "secure OLED lock player manifest"
 
@@ -110,7 +131,7 @@ fi
 if command -v adb >/dev/null 2>&1; then
     device=${DAAK_DEVICE_SERIAL:-$(adb devices | awk '$2 == "device" {print $1; exit}')}
     if [ -n "$device" ]; then
-        adb -s "$device" shell dumpsys package com.daak.node | grep -q 'versionName=7.1.3' || fail "installed DAAK version"
+        adb -s "$device" shell dumpsys package com.daak.node | grep -q 'versionName=7.5.3' || fail "installed DAAK version"
         adb -s "$device" shell "su -c 'id'" | grep -q 'uid=0(root)' || fail "root"
         adb -s "$device" shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME | grep -q 'com.daak.node/.MainActivity' || fail "default launcher"
         adb -s "$device" shell settings get secure enabled_accessibility_services | grep -q 'com.daak.node/.NodeControlAccessibilityService' || fail "system-wide DAAK Home gesture"
@@ -194,4 +215,4 @@ if command -v adb >/dev/null 2>&1; then
     fi
 fi
 
-printf 'DAAK NODE v7.1.3 verification complete.\n'
+printf 'DAAK NODE v7.5.3 verification complete.\n'

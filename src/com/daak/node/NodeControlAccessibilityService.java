@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.content.Intent;
 import android.content.ComponentName;
+import android.content.res.Configuration;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -40,6 +41,18 @@ public final class NodeControlAccessibilityService extends AccessibilityService 
     // on the Exynos Galaxy S9/S9+. Match both values so firmware variants work.
     private static final int KEYCODE_SAMSUNG_BIXBY = 1082;
     private static final int SCANCODE_SAMSUNG_BIXBY = 703;
+    private static final String ANDROID_AUTO_RECEIVER_PACKAGE =
+            "com.andrerinas.headunitrevived";
+    private static final String ANDROID_AUTO_AUTOMATION_ACTIVITY =
+            "com.andrerinas.openheadunit.main.AutomationActivity";
+    private static final String ANDROID_AUTO_SELF_MODE_ACTION =
+            "com.andrerinas.openheadunit.ACTION_START_SELF_MODE";
+    private static final String ANDROID_AUTO_DISCONNECT_ACTION =
+            "com.andrerinas.openheadunit.ACTION_DISCONNECT";
+    private static final long ANDROID_AUTO_ROTATION_DEBOUNCE_MS = 700L;
+    // Local Self Mode needs roughly 25 seconds to tear down Android Auto's
+    // loopback wireless projection before a fresh service discovery can win.
+    private static final long ANDROID_AUTO_RECONNECT_DELAY_MS = 28000L;
     private static NodeControlAccessibilityService active;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -60,6 +73,24 @@ public final class NodeControlAccessibilityService extends AccessibilityService 
     private boolean simPinSubmitted;
     private String simPinValue;
     private long simPinStartedAt;
+    private boolean androidAutoRotationArmed;
+    private boolean androidAutoReconnectInProgress;
+    private int androidAutoDisplayRotation = -1;
+    private final Runnable restartAndroidAutoAfterRotation = new Runnable() {
+        @Override public void run() {
+            if (!androidAutoRotationArmed) return;
+            Log.i("DAAK_ANDROID_AUTO", "orientation changed; reconnecting projection");
+            androidAutoReconnectInProgress = true;
+            startAndroidAutoAction(ANDROID_AUTO_DISCONNECT_ACTION);
+            handler.postDelayed(() -> {
+                if (androidAutoRotationArmed &&
+                        !startAndroidAutoAction(ANDROID_AUTO_SELF_MODE_ACTION)) {
+                    androidAutoRotationArmed = false;
+                }
+                handler.postDelayed(() -> androidAutoReconnectInProgress = false, 3500L);
+            }, ANDROID_AUTO_RECONNECT_DELAY_MS);
+        }
+    };
     private final Runnable wolPoll = new Runnable() {
         @Override public void run() {
             if (!wolActive) return;
@@ -112,6 +143,19 @@ public final class NodeControlAccessibilityService extends AccessibilityService 
 
     @Override public void onInterrupt() { }
 
+    @Override public void onConfigurationChanged(Configuration configuration) {
+        super.onConfigurationChanged(configuration);
+        if (!androidAutoRotationArmed || configuration == null) return;
+        WindowManager windowManager = windows != null ? windows :
+                (WindowManager) getSystemService(WINDOW_SERVICE);
+        int displayRotation = windowManager.getDefaultDisplay().getRotation();
+        if (displayRotation == androidAutoDisplayRotation) return;
+        androidAutoDisplayRotation = displayRotation;
+        handler.removeCallbacks(restartAndroidAutoAfterRotation);
+        handler.postDelayed(restartAndroidAutoAfterRotation,
+                ANDROID_AUTO_ROTATION_DEBOUNCE_MS);
+    }
+
     @Override protected boolean onKeyEvent(KeyEvent event) {
         if (event == null || (event.getKeyCode() != KEYCODE_SAMSUNG_BIXBY &&
                 event.getScanCode() != SCANCODE_SAMSUNG_BIXBY)) return false;
@@ -131,6 +175,9 @@ public final class NodeControlAccessibilityService extends AccessibilityService 
     @Override public void onDestroy() {
         if (active == this) active = null;
         handler.removeCallbacks(wolPoll);
+        handler.removeCallbacks(restartAndroidAutoAfterRotation);
+        androidAutoRotationArmed = false;
+        androidAutoReconnectInProgress = false;
         wolActive = false;
         removeView(gestureStrip);
         removeView(wolMask);
@@ -167,6 +214,46 @@ public final class NodeControlAccessibilityService extends AccessibilityService 
         if (service == null || pin == null || !pin.matches("[0-9]{4,8}")) return false;
         service.handler.post(() -> service.beginSimPinDisable(pin));
         return true;
+    }
+
+    static boolean armAndroidAutoRotation(int displayRotation) {
+        final NodeControlAccessibilityService service = active;
+        if (service == null) return false;
+        service.handler.removeCallbacks(service.restartAndroidAutoAfterRotation);
+        service.androidAutoDisplayRotation = displayRotation;
+        service.androidAutoRotationArmed = true;
+        service.androidAutoReconnectInProgress = false;
+        Log.i("DAAK_ANDROID_AUTO", "rotation monitor armed at displayRotation=" +
+                displayRotation);
+        return true;
+    }
+
+    static void disarmAndroidAutoRotation() {
+        final NodeControlAccessibilityService service = active;
+        if (service == null) return;
+        if (service.androidAutoReconnectInProgress) {
+            Log.i("DAAK_ANDROID_AUTO", "keeping rotation monitor armed during reconnect");
+            return;
+        }
+        service.handler.removeCallbacks(service.restartAndroidAutoAfterRotation);
+        if (service.androidAutoRotationArmed) {
+            Log.i("DAAK_ANDROID_AUTO", "rotation monitor disarmed");
+        }
+        service.androidAutoRotationArmed = false;
+    }
+
+    private boolean startAndroidAutoAction(String action) {
+        Intent intent = new Intent(action)
+                .setComponent(new ComponentName(ANDROID_AUTO_RECEIVER_PACKAGE,
+                        ANDROID_AUTO_AUTOMATION_ACTIVITY))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        try {
+            startActivity(intent);
+            return true;
+        } catch (RuntimeException unavailable) {
+            Log.w("DAAK_ANDROID_AUTO", "automation action failed: " + action, unavailable);
+            return false;
+        }
     }
 
     private void beginSimPinDisable(String pin) {

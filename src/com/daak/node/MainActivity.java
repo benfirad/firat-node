@@ -104,7 +104,12 @@ public final class MainActivity extends Activity {
     static final String EXTRA_FORCE_HOME = "com.daak.node.extra.FORCE_HOME";
     static final String EXTRA_WOL_STATUS = "com.daak.node.extra.WOL_STATUS";
     static final String EXTRA_CODEX_STANDALONE = "com.daak.node.extra.CODEX_STANDALONE";
-    private static final String BUILD_VERSION = "7.1.3";
+    private static final String BUILD_VERSION = "7.5.3";
+    private static final String ANDROID_AUTO_RECEIVER_PACKAGE = "com.andrerinas.headunitrevived";
+    private static final String ANDROID_AUTO_SELF_MODE_ACTION =
+            "com.andrerinas.openheadunit.ACTION_START_SELF_MODE";
+    private static final String ANDROID_AUTO_AUTOMATION_ACTIVITY =
+            "com.andrerinas.openheadunit.main.AutomationActivity";
     private static final String CROSSTALK_PACKAGE = "com.buildwithparallel.crosstalk";
     private static final String CROSSTALK_URL = "http://localhost:8000";
     private static final String BOOK_READER_PACKAGE = "com.foobnix.pro.pdf.reader";
@@ -146,6 +151,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        NodeControlAccessibilityService.disarmAndroidAutoRotation();
         hideSystemBars();
         if (nodeView != null) {
             nodeView.reloadApps();
@@ -230,6 +236,7 @@ public final class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
+        NodeControlAccessibilityService.disarmAndroidAutoRotation();
         pendingProtectedAction = null;
         if (biometricCancellation != null) {
             biometricCancellation.cancel();
@@ -581,6 +588,34 @@ public final class MainActivity extends Activity {
         catch (RuntimeException error) { toast("Uygulama açılamadı"); }
     }
 
+    private void launchAndroidAuto() {
+        boolean rotationMonitorReady =
+                NodeControlAccessibilityService.armAndroidAutoRotation(
+                        getWindowManager().getDefaultDisplay().getRotation());
+        if (startAndroidAutoAction(ANDROID_AUTO_SELF_MODE_ACTION)) {
+            toast(rotationMonitorReady
+                    ? "Android Auto • vaytniga yerel mod"
+                    : "Android Auto • dönüş izleyicisi kullanılamıyor");
+        } else {
+            NodeControlAccessibilityService.disarmAndroidAutoRotation();
+            toast("Android Auto / Headunit başlatılamadı");
+        }
+    }
+
+    private boolean startAndroidAutoAction(String action) {
+        Intent intent = new Intent(action);
+        intent.setComponent(new ComponentName(ANDROID_AUTO_RECEIVER_PACKAGE,
+                ANDROID_AUTO_AUTOMATION_ACTIVITY));
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        try {
+            startActivity(intent);
+            return true;
+        } catch (RuntimeException unavailable) {
+            Log.w("DAAK_ANDROID_AUTO", "automation action failed: " + action, unavailable);
+            return false;
+        }
+    }
+
     private void launchCrosstalk() {
         if (getPackageManager().getLaunchIntentForPackage(CROSSTALK_PACKAGE) != null) {
             launchPackage(CROSSTALK_PACKAGE);
@@ -843,12 +878,40 @@ public final class MainActivity extends Activity {
             applyFilter();
         }
 
+        String defaultPinnedTarget(int index) {
+            String[] defaults = {"org.lineageos.twelve", "foundation.e.camera",
+                    "org.lineageos.glimpse", "foundation.e.pdfviewer",
+                    "@daak_remember", "@rm_os"};
+            return defaults[Math.max(0, Math.min(5, index))];
+        }
+
+        AppEntry internalPinnedEntry(String packageName) {
+            if ("@daak_remember".equals(packageName)) return new AppEntry("REMEM", packageName);
+            if ("@rm_os".equals(packageName)) return new AppEntry("RM-OS", packageName);
+            if ("@daak_deck".equals(packageName)) return new AppEntry("DECK", packageName);
+            return null;
+        }
+
+        AppEntry installedPinnedEntry(String packageName) {
+            AppEntry internal = internalPinnedEntry(packageName);
+            if (internal != null) return internal;
+            for (AppEntry app : allApps) if (app.packageName.equals(packageName)) return app;
+            return null;
+        }
+
         AppEntry pinnedApp(int index) {
-            String[] defaults = {"org.oxycblt.auxio", "com.sec.android.app.camera",
-                    "io.github.yahiaangelo.filmsimulator.android", BOOK_READER_PACKAGE};
-            String wanted = getSharedPreferences(NodeStore.PREFS, 0).getString("pinned_" + index, defaults[index]);
-            for (AppEntry app : allApps) if (app.packageName.equals(wanted)) return app;
-            return new AppEntry("EMPTY", wanted);
+            SharedPreferences preferences = getSharedPreferences(NodeStore.PREFS, 0);
+            String key = "pinned_" + index;
+            String wanted = preferences.getString(key, defaultPinnedTarget(index));
+            AppEntry selected = installedPinnedEntry(wanted);
+            if (selected != null) return selected;
+            selected = installedPinnedEntry(defaultPinnedTarget(index));
+            if (selected == null && !allApps.isEmpty()) selected = allApps.get(index % allApps.size());
+            if (selected == null) selected = internalPinnedEntry(index % 3 == 0 ? "@daak_remember" : "@rm_os");
+            if (!selected.packageName.equals(wanted)) {
+                preferences.edit().putString(key, selected.packageName).apply();
+            }
+            return selected;
         }
 
         String pinnedName(int index) {
@@ -857,7 +920,12 @@ public final class MainActivity extends Activity {
 
         String pinnedAction(int index) {
             AppEntry app = pinnedApp(index);
-            if (index == 0 && app.packageName.equals("org.oxycblt.auxio")) return "MUSIC";
+            if (app.packageName.equals("@daak_remember")) return "REMEMBER";
+            if (app.packageName.equals("@rm_os")) return "RMOS";
+            if (app.packageName.equals("@daak_deck")) return "DECK";
+            if (index == 0 && (app.packageName.equals("org.lineageos.twelve") ||
+                    app.packageName.equals("org.oxycblt.auxio") ||
+                    app.packageName.equals("com.demonlab.lune"))) return "MUSIC";
             if (app.packageName.equals(BOOK_READER_PACKAGE)) return "BOOKS";
             return "PKG:" + app.packageName;
         }
@@ -1750,6 +1818,59 @@ public final class MainActivity extends Activity {
             addHit(rect, action);
         }
 
+        void androidAutoButton(Canvas c, RectF rect) {
+            int autoBlue = Color.rgb(66, 133, 244);
+            box(c, rect, 13, panelHot, autoBlue);
+            c.save(); c.clipRect(rect);
+            boolean compact = rect.width() < dp(72);
+            float logoSize = Math.min(compact ? dp(24) : dp(23), rect.height() - dp(15));
+            float logoLeft = compact ? rect.centerX() - logoSize / 2f : rect.left + dp(10);
+            float logoCenterY = compact ? rect.centerY() - dp(4) : rect.centerY();
+            RectF logo = new RectF(logoLeft, logoCenterY - logoSize / 2f,
+                    logoLeft + logoSize, logoCenterY + logoSize / 2f);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setStrokeWidth(dp(3.2f));
+            paint.setColor(autoBlue);
+            canvasLine(c, logo.centerX(), logo.top, logo.left, logo.bottom);
+            canvasLine(c, logo.centerX(), logo.top, logo.right, logo.bottom);
+            canvasLine(c, logo.left + logo.width() * 0.27f,
+                    logo.top + logo.height() * 0.64f,
+                    logo.right - logo.width() * 0.27f,
+                    logo.top + logo.height() * 0.64f);
+            paint.setStrokeCap(Paint.Cap.BUTT);
+            paint.setStyle(Paint.Style.FILL);
+            if (compact) {
+                type(5.2f, soft, true);
+                center(c, "AUTO", rect.centerX(), rect.bottom - dp(5));
+            } else {
+                float labelX = logo.right + dp(7);
+                type(5.8f, autoBlue, true);
+                c.drawText(fitText("ANDROID", rect.right - labelX - dp(7)), labelX,
+                        rect.centerY() - dp(2), paint);
+                type(7.2f, soft, true);
+                c.drawText(fitText("AUTO", rect.right - labelX - dp(7)), labelX,
+                        rect.centerY() + dp(12), paint);
+            }
+            c.restore();
+            addHit(rect, "ANDROID_AUTO");
+        }
+
+        void nodeControlButton(Canvas c, RectF rect) {
+            box(c, rect, 13, panelHot, mintDim);
+            c.save(); c.clipRect(rect);
+            type(5.2f, mintDim, true); center(c, "NODE", rect.centerX(), rect.top + dp(14));
+            type(rect.width() < dp(72) ? 5.7f : 7.2f, mint, true);
+            center(c, "CONTROL", rect.centerX(), rect.centerY() + dp(4));
+            type(4.8f, ghost, false); center(c, "SETTINGS", rect.centerX(), rect.bottom - dp(5));
+            c.restore();
+            addHit(rect, "CONTROL");
+        }
+
+        void canvasLine(Canvas c, float startX, float startY, float endX, float endY) {
+            c.drawLine(startX, startY, endX, endY, paint);
+        }
+
         @Override protected void onDraw(Canvas c) {
             super.onDraw(c); c.drawColor(Color.BLACK); hits.clear();
             c.save(); c.translate(burnX, burnY);
@@ -1862,7 +1983,10 @@ public final class MainActivity extends Activity {
 
             type(7, mintDim, true); c.drawText("// WORKSPACE", left, dp(197), paint);
             float half = (right - left - gap) / 2f;
-            button(c, new RectF(left, dp(205), left + half, dp(257)), "CLI", "CODEX", "MAC • REAL CLI", true, "CODEX");
+            float controlHalf = (half - gap) / 2f;
+            nodeControlButton(c, new RectF(left, dp(205), left + controlHalf, dp(257)));
+            androidAutoButton(c, new RectF(left + controlHalf + gap, dp(205),
+                    left + half, dp(257)));
             button(c, new RectF(left + half + gap, dp(205), right, dp(257)), "MESH", "PRIVATE DISKS", "LOLILE + INTEL MAC", true, "DISK");
             button(c, new RectF(left, dp(265), left + half, dp(317)), "GOOGLE", "REMOTE", "CHROME REMOTE DESKTOP", false, "REMOTE");
             button(c, new RectF(left + half + gap, dp(265), right, dp(317)), "LINUX", "DEBIAN", "LOCAL PROOT", false, "LOCAL");
@@ -1921,7 +2045,10 @@ public final class MainActivity extends Activity {
                     x1 + dp(12), top + dp(113), paint);
 
             float tileTop = dp(199), tileH = (bottom - tileTop - gap) / 2f, tileW = (col - gap) / 2f;
-            button(c, new RectF(x1, tileTop, x1 + tileW, tileTop + tileH), "CLI", "CODEX", "MAC CLI", true, "CODEX");
+            float controlTileW = (tileW - gap) / 2f;
+            nodeControlButton(c, new RectF(x1, tileTop, x1 + controlTileW, tileTop + tileH));
+            androidAutoButton(c, new RectF(x1 + controlTileW + gap, tileTop,
+                    x1 + tileW, tileTop + tileH));
             button(c, new RectF(x1 + tileW + gap, tileTop, x1 + col, tileTop + tileH), "MESH", "DISKS", "LOLILE + INTEL MAC", true, "DISK");
             button(c, new RectF(x1, tileTop + tileH + gap, x1 + tileW, bottom), "GOOGLE", "REMOTE", "CHROME RD", false, "REMOTE");
             button(c, new RectF(x1 + tileW + gap, tileTop + tileH + gap, x1 + col, bottom), "LINUX", "DEBIAN", "LOCAL", false, "LOCAL");
@@ -2203,9 +2330,12 @@ public final class MainActivity extends Activity {
             Intent direct = new Intent(Intent.ACTION_VIEW,
                     Uri.parse(sessionUrl));
             // Google's Android CRD package is a TWA wrapper that rewrites an
-            // external /session URL to its start page. Chrome preserves the
-            // verified Google URL and enters the selected host directly.
-            direct.setPackage("com.android.chrome");
+            // external /session URL to its start page. Use the installed
+            // Chromium browser explicitly so the selected host is preserved.
+            String browserPackage = getPackageManager().getLaunchIntentForPackage(
+                    "foundation.e.browser") != null
+                    ? "foundation.e.browser" : "com.android.chrome";
+            direct.setPackage(browserPackage);
             try {
                 startActivity(direct);
             } catch (RuntimeException error) {
@@ -2218,6 +2348,13 @@ public final class MainActivity extends Activity {
         }
 
         void launchChromeRemoteDesktop() {
+            if (getPackageManager().getLaunchIntentForPackage("foundation.e.browser") != null) {
+                Intent web = new Intent(Intent.ACTION_VIEW,
+                        Uri.parse("https://remotedesktop.google.com/access"));
+                web.setPackage("foundation.e.browser");
+                try { startActivity(web); return; }
+                catch (RuntimeException ignored) { }
+            }
             Intent launch = getPackageManager().getLaunchIntentForPackage("com.google.chromeremotedesktop");
             if (launch != null) { startActivity(launch); return; }
             try {
@@ -3688,6 +3825,7 @@ public final class MainActivity extends Activity {
             else if (a.equals("APPS")) showMode(APPS);
             else if (a.equals("HELP")) showMode(HELP);
             else if (a.equals("CONTROL")) showMode(CONTROL);
+            else if (a.equals("ANDROID_AUTO")) launchAndroidAuto();
             else if (a.equals("REMOTE")) showMode(REMOTE);
             else if (a.equals("SEARCH")) showSearch();
             else if (a.equals("VAULT")) authenticate();
