@@ -21,6 +21,11 @@ requires the separately branded Google Chrome package.
 
 ## Local vehicle shortcut
 
+DAAK NODE 7.6.6 adds a fixed DAAK Yayın control tile to the S9 deck. It can
+start, stop, refresh, or fall back to the M3 OBS path through the private
+Termux-to-M3 bridge without root or a separately deployed shortcut; arbitrary
+remote commands and stream secrets are never accepted by the app.
+
 DAAK NODE 7.5.3 splits the former Node Control tile into two equal actions in
 portrait and landscape: **Node Control** and a blue **Android Auto** shortcut.
 The Android Auto action starts Open Headunit's explicit local Self Mode, making

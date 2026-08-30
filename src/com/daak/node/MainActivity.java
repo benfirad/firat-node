@@ -104,7 +104,7 @@ public final class MainActivity extends Activity {
     static final String EXTRA_FORCE_HOME = "com.daak.node.extra.FORCE_HOME";
     static final String EXTRA_WOL_STATUS = "com.daak.node.extra.WOL_STATUS";
     static final String EXTRA_CODEX_STANDALONE = "com.daak.node.extra.CODEX_STANDALONE";
-    private static final String BUILD_VERSION = "7.5.3";
+    private static final String BUILD_VERSION = "7.6.6";
     private static final String ANDROID_AUTO_RECEIVER_PACKAGE = "com.andrerinas.headunitrevived";
     private static final String ANDROID_AUTO_SELF_MODE_ACTION =
             "com.andrerinas.openheadunit.ACTION_START_SELF_MODE";
@@ -2258,7 +2258,7 @@ public final class MainActivity extends Activity {
                     {"VPN", "TAILSCALE", "PKG:com.tailscale.ipn"}, {"PC", "DAAK LOLILE", "LOLILE_HUB"}, {"PIN", "PINNED APPS", "PINS"}, {"KEY", "KEYBOARD", "SET:INPUT"},
                     {"SEC", "BIOMETRICS", "SET:SECURITY"}, {"WA", "WHATSAPP TASKS", "WHATSAPP"}, {"MIC", "DAAK INBOX", "DICTATE"}, {"UP", "UPDATE", "CHECK_UPDATE"},
                     {"ALM", "FOSSIFY CLOCK", "PKG:org.fossify.clock"}, {"ZZZ", "SLEEP TRACKER", "PKG:hu.vmiklos.plees_tracker"},
-                    {"SND", "NOTIFY SOUND", "SOUND"}, {"MESH", "CROSSTALK", "CROSSTALK"}
+                    {"SND", "NOTIFY SOUND", "SOUND"}, {"LIVE", "DAAK YAYIN", "BROADCAST"}
             };
             float colW = (right - left - gap * 3f) / 4f, rowH = (bottom - top - gap * 2f) / 3f;
             for (int i = 0; i < tiles.length; i++) {
@@ -2483,7 +2483,7 @@ public final class MainActivity extends Activity {
                     {"SEC", "BIOMETRICS", "SET:SECURITY"}, {"WA", "WHATSAPP TASKS", "WHATSAPP"},
                     {"UP", "UPDATE", "CHECK_UPDATE"}, {"MIC", "DAAK INBOX", "DICTATE"},
                     {"ALM", "FOSSIFY CLOCK", "PKG:org.fossify.clock"}, {"ZZZ", "SLEEP TRACKER", "PKG:hu.vmiklos.plees_tracker"},
-                    {"SND", "NOTIFY SOUND", "SOUND"}, {"MESH", "CROSSTALK", "CROSSTALK"}
+                    {"SND", "NOTIFY SOUND", "SOUND"}, {"LIVE", "DAAK YAYIN", "BROADCAST"}
             };
             float half = (right - left - gap) / 2f, top = dp(124), h = dp(58);
             for (int i = 0; i < tiles.length; i++) {
@@ -2494,6 +2494,36 @@ public final class MainActivity extends Activity {
             }
             RectF refresh = new RectF(left, top + dp(402), right, top + dp(460));
             button(c, refresh, "SCAN", "REFRESH NODE STATUS", "NO CHANGES • READ ONLY", true, "REFRESH");
+        }
+
+        void showBroadcastPanel() {
+            final String[] actions = {"YAYINI BAŞLAT", "YAYINI DURDUR", "DURUMU YENİLE", "M3 OBS'Yİ AÇ"};
+            new AlertDialog.Builder(MainActivity.this)
+                    .setTitle("DAAK YAYIN · THUNDERBOLT ÖNCELİKLİ")
+                    .setItems(actions, (dialog, which) -> {
+                        String command;
+                        String feedback;
+                        if (which == 0) { command = "start"; feedback = "Yayın başlatılıyor"; }
+                        else if (which == 1) { command = "stop"; feedback = "Yayın durduruluyor"; }
+                        else if (which == 2) { command = "status"; feedback = "Yayın durumu yenileniyor"; }
+                        else { command = "local"; feedback = "M3 OBS açılıyor"; }
+                        String remoteCommand = "'broadcast " + command + "'";
+                        String keyBootstrap = "mkdir -p ~/.ssh /sdcard/Download/DAAK && " +
+                                "chmod 700 ~/.ssh && " +
+                                "(test -s ~/.ssh/id_ed25519 || ssh-keygen -q -t ed25519 " +
+                                "-N '' -f ~/.ssh/id_ed25519) && " +
+                                "cp ~/.ssh/id_ed25519.pub /sdcard/Download/DAAK/s9-m3-control.pub && ";
+                        runTermuxRaw(keyBootstrap + "exec ssh -o BatchMode=yes -o ConnectTimeout=8 " +
+                                "-o StrictHostKeyChecking=yes " +
+                                "-o UserKnownHostsFile=/sdcard/Download/DAAK/m3-known_hosts " +
+                                "kai@kais-macbook-pro " + remoteCommand +
+                                " > /sdcard/Download/daak-broadcast-result.txt 2>&1", true, null);
+                        message = feedback.toUpperCase(Locale.ROOT);
+                        toast(feedback);
+                        invalidate();
+                    })
+                    .setNegativeButton("KAPAT", null)
+                    .show();
         }
 
         void drawDisk(Canvas c) {
@@ -3840,6 +3870,7 @@ public final class MainActivity extends Activity {
             else if (a.equals("WHATSAPP")) showWhatsAppPanel();
             else if (a.equals("MUSIC")) showMusicPanel();
             else if (a.equals("CROSSTALK")) launchCrosstalk();
+            else if (a.equals("BROADCAST")) showBroadcastPanel();
             else if (a.equals("BOOKS")) openBookReader();
             else if (a.equals("POWER_LOLILE")) showPowerPanel("lolile");
             else if (a.equals("POWER_MAC")) showPowerPanel("mac");
